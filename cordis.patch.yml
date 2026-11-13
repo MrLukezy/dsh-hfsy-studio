@@ -1,0 +1,23 @@
+# dsh-hfsy-studio bundle patch：把「生图工作台」插进 dsh Web bundle。
+# 这里的 config 就是工作台的默认参数，改完保存并重载插件即可生效。
+- insert:
+    - id: hfsy-studio
+      name: dsh-hfsy-studio
+      config:
+        # hfsy 中转的 OpenAI 兼容根地址（末尾不要带 /）
+        baseUrl: https://www.hfsyapi.cn/v1
+        # 从这里取密钥：DSH 凭据库里的名字，取不到时回落到同名环境变量
+        apiKeyEnv: OPENAI_API_KEY
+        # 出图/出片落盘目录；相对路径按 dsh 进程工作目录解析
+        outputDir: D:/lukezy/deepseek_harness/chat/hfsy-output
+        imageModels:
+          - gpt-image-2
+          - gpt-image-2.5
+          - gpt-image-2.6
+          - gpt-image-2pro
+          - gpt-image-2pro-4k
+        videoModels:
+          - Doubao-Seedance-2.0-fast
+          - Doubao-Seedance-2.0
+          - Doubao-Seedance-2.5
+        maxConcurrent: 2

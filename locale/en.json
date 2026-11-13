@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "title": "HFSY Image Studio",
+    "description": "Generate images and clips through the hfsy relay: parameter panel, result gallery, local output folder and generation history, one click from the sidebar."
+  },
+  "panel": {
+    "title": "Image Studio",
+    "image": "Image",
+    "video": "Video"
+  }
+}
