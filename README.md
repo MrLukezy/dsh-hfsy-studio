@@ -14,6 +14,10 @@
 | 失败可见 | 失败/取消的任务停在「失败 / 已取消」区，原样显示中转返回的错误，可手动关闭 |
 | 本地落盘 | 默认 `hfsy-output/<日期>/<时分秒>-<id>-<提示词>.png`，历史写在 `hfsy-output/history.json` |
 | 历史持久 | 重启 DSH 后历史仍在（磁盘文件 + history.json 双份） |
+| 收藏 | 画廊里点 ☆ 收藏，可按收藏夹分组；收藏的图能一键「用作参考图」 |
+| 参考图 / 图生图 | 从历史或收藏挑最多 4 张参考图，带参考时自动走 `/images/edits`（multipart），不再走纯文生图 |
+| 角色库 | 把当前参考图存成角色（名字 + 外貌描述），下次勾选角色即可复用同一形象，描述会自动写进提示词 |
+| 工具库 | 只保留「4K 增强」：选一张图，用 `gpt-image-2pro-4k` 放大到 3840×2160 / 2160×3840 |
 | 价格展示 | 自动读中转的 `/api/pricing`：下拉里每个模型带单价，选中后显示「$0.75/秒 · 5s ≈ $3.75」，生成按钮也带本次预计花费 |
 | 视频可出片 | 走中转的 `/video/create` + `/video/query`，按秒计费，2~5 分钟出片，成品落盘 mp4 并可在工作台里播放 |
 | 密钥隔离 | 密钥只在宿主进程里解析，浏览器永远拿不到；路由只接受同源请求 |
@@ -49,6 +53,8 @@
     # videoTimeoutMs: 1800000             # 视频总等待上限（默认 30 分钟）
     # pricingTtlMs: 600000                # 价目表缓存时间，页面「刷新」会强制重拉
     # currencySymbol: $                   # 中转 /api/pricing 的金额单位
+    # maxRefs: 4                          # 单次最多几张参考图
+    # upscaleModels: [gpt-image-2pro-4k, gpt-image-2pro]   # 工具库「4K 增强」可用模型
 ```
 
 密钥：DSH 凭据里已有 `OPENAI_API_KEY`（就是 hfsy 的 key）时页头会显示「密钥已就绪 · 来源: file」；没有就显示黄色告警。
@@ -59,9 +65,11 @@
 | --- | --- | --- |
 | GET | `/hfsy-studio/api/state` | 配置、可用模型、价目表、最近任务、历史、统计 |
 | POST | `/hfsy-studio/api/pricing/refresh` | 强制重拉中转价目表 |
-| POST | `/hfsy-studio/api/generate` | 提交任务 `{kind, model, prompt, size, quality, count, format, duration, resolution}` |
+| POST | `/hfsy-studio/api/generate` | 提交任务 `{kind, model, prompt, size, quality, count, format, duration, resolution, refs, characters, tool}`；`refs` 非空即图生图，`tool: 'upscale'` 走 4K 增强 |
 | POST | `/hfsy-studio/api/jobs/<id>` | 取消任务 |
 | POST | `/hfsy-studio/api/history/delete` · `/history/clear` | 删一条 / 清空历史（不动磁盘文件） |
+| POST | `/hfsy-studio/api/favorites/add` · `/remove` · `/move` · `/folder` | 收藏一张图 / 取消 / 换收藏夹 / 建·改名·删收藏夹 |
+| POST | `/hfsy-studio/api/characters/save` · `/delete` | 保存或删除角色（名字 + 描述 + 参考图） |
 | GET | `/hfsy-studio/api/models` | 拉中转 `/models` 并按图/视频分类 |
 | GET | `/hfsy-studio/api/file?rel=` | 回读落盘文件（限定在 outputDir 内，防路径穿越） |
 | POST | `/hfsy-studio/api/open-output` | 打开输出目录 |
@@ -85,7 +93,9 @@ node test/client.mjs              # 用假 React 跑工厂 + 渲染面板，验�
 - `smoke.mjs --live-video`：`sd-2-fast-480` 4s 出片成功，mp4 落盘、`/file` 回读 `video/mp4`。
 - 参数直连验证：`/video/create` 接受 `{model, prompt, resolution, duration}`，`/video/query?id=` 返回 `data.detail.url` 与 `progress`。
 - 价格核对：中转 `/api/pricing` 里 `gpt-image-2 = $0.02`，实测一次出图计费正好 `2`（美分），单位一致。
-- `client.mjs`：ModuleLoader id、`sidebar.panellist` + `main` 两处注册、面板渲染 60 节点、样式只注入一次。
+- `smoke.mjs --live-edit`：真跑通「收藏 → 存角色 → 带参考图生图（39s）→ 4K 增强（3840×2160 / 1.5 MB）」，`favorites.json` / `characters.json` 均已落盘。
+- `client.mjs`：ModuleLoader id、`sidebar.panellist` + `main` 两处注册、面板渲染 67 节点、样式只注入一次。
+- 中转侧直连验证：`/images/edits` 支持 `image[]` 多参考图；`gpt-image-2pro-4k` + `size=3840x2160` 返回真 4K。
 - 真实 dsh 实例里打开页面：侧栏入口、面板渲染、UI 内出图、灯箱、失败卡片均正常。
 
 未验证：多图并发出图、`open-output` 在非 Windows 平台的表现。
@@ -107,4 +117,6 @@ test/               smoke / client 两个独立测试
 - 视频走 `/video/create` + `/video/query`（按秒计费）；`/video/generations` 在这台中转上会报 `invalid_api_platform`，别走那条。
 - `/models` 里列出的视频模型不等于能用：`Doubao-Seedance-*` 未配价格，`muse-video` 没有通道，真正能跑的是 `sd-*` / `wan-3.0-*` / `minimax-h3` 这批。
 - 出图模型走 `/images/generations`；MJ 系（`mj_imagine`）协议不同，本版未接。
-- 历史只记元数据，删除记录不会删磁盘文件。
+- 历史只记元数据，删除记录不会删磁盘文件；收藏和角色分别存在 `favorites.json` / `characters.json`。
+- 中转有时同时返回 `b64_json:""` 和 `url`，空的 b64 不能当结果（踩过，已修）。
+- MJ 系、PSD/动画/素材提取这类工具这次没有迁（只保留 4K 增强）。

@@ -81,6 +81,8 @@ function normalizeConfig(raw) {
     videoTimeoutMs: clampInt(input.videoTimeoutMs, 60_000, 3_600_000, 1_800_000),
     pricingTtlMs: clampInt(input.pricingTtlMs, 60_000, 3_600_000, 600_000),
     currencySymbol: pickString(input.currencySymbol, '$'),
+    maxRefs: clampInt(input.maxRefs, 1, 8, 4),
+    upscaleModels: pickList(input.upscaleModels, ['gpt-image-2pro-4k', 'gpt-image-2pro']),
   }
 }
 
@@ -203,6 +205,42 @@ async function requestJson(config, key, route, { method = 'POST', body, signal, 
       clearTimeout(timer)
       signal?.removeEventListener('abort', relayAbort)
     }
+  }
+}
+
+/** 带参考图时走 multipart（OpenAI `/images/edits` 的 image[] 语义）。 */
+async function requestMultipart(config, key, route, { fields, files, signal, timeoutMs } = {}) {
+  const url = route.startsWith('http') ? route : `${config.baseUrl}${route}`
+  const budget = timeoutMs ?? config.requestTimeoutMs
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(new DOMException('请求超时', 'TimeoutError')), budget)
+  const relayAbort = () => controller.abort(signal?.reason)
+  signal?.addEventListener('abort', relayAbort, { once: true })
+  try {
+    const form = new FormData()
+    for (const [name, value] of Object.entries(fields ?? {})) {
+      if (value !== undefined && value !== null && value !== '') form.append(name, String(value))
+    }
+    for (const [index, file] of (files ?? []).entries()) {
+      form.append('image[]', new Blob([file.buffer], { type: file.mediaType }), `ref-${index + 1}.${file.ext}`)
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+      body: form,
+      signal: controller.signal,
+    })
+    const text = await response.text()
+    if (!response.ok) {
+      throw new ProviderError(providerMessage(text) || `HTTP ${response.status}`, {
+        status: response.status,
+        retryable: false,
+      })
+    }
+    return text.trim() === '' ? {} : JSON.parse(text)
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', relayAbort)
   }
 }
 
@@ -349,6 +387,84 @@ export function apply(ctx, rawConfig) {
     return persistHistory()
   }
 
+  /* ---- 收藏 / 角色库 ---- */
+
+  const favoritesFile = path.join(config.outputDir, 'favorites.json')
+  const charactersFile = path.join(config.outputDir, 'characters.json')
+  let favorites = { folders: [], items: [] }
+  let characters = { items: [] }
+  let libraryLoaded = false
+
+  async function loadLibrary() {
+    if (libraryLoaded) return
+    libraryLoaded = true
+    try {
+      const raw = JSON.parse(await readFile(favoritesFile, 'utf8'))
+      favorites = {
+        folders: Array.isArray(raw?.folders) ? raw.folders.filter((item) => typeof item?.id === 'string' && typeof item?.name === 'string') : [],
+        items: Array.isArray(raw?.items) ? raw.items.filter((item) => typeof item?.id === 'string' && typeof item?.rel === 'string') : [],
+      }
+    } catch {
+      // 第一次运行还没有收藏文件
+    }
+    try {
+      const raw = JSON.parse(await readFile(charactersFile, 'utf8'))
+      characters = {
+        items: Array.isArray(raw?.items)
+          ? raw.items.filter((item) => typeof item?.id === 'string' && typeof item?.name === 'string' && Array.isArray(item?.refs))
+          : [],
+      }
+    } catch {
+      // 同上
+    }
+  }
+
+  async function saveFavorites() {
+    await writeFile(favoritesFile, `${JSON.stringify(favorites, null, 2)}\n`)
+  }
+
+  async function saveCharacters() {
+    await writeFile(charactersFile, `${JSON.stringify(characters, null, 2)}\n`)
+  }
+
+  /** outputDir 内的相对路径 → 绝对路径；越界一律拒绝。 */
+  function safePath(rel) {
+    if (typeof rel !== 'string' || rel.trim() === '') return undefined
+    const root = path.resolve(config.outputDir)
+    const absolute = path.resolve(root, rel)
+    return absolute.startsWith(root + path.sep) ? absolute : undefined
+  }
+
+  /** 把 rel 列表读成可以直接塞进 multipart 的图片。 */
+  async function resolveRefs(rels) {
+    const list = []
+    for (const rel of rels) {
+      const absolute = safePath(rel)
+      if (absolute === undefined) throw new Error(`参考图路径不合法：${rel}`)
+      const buffer = await readFile(absolute)
+      const sniffed = sniffImage(buffer)
+      if (sniffed === undefined) throw new Error(`参考图不是可识别的图片：${rel}`)
+      list.push({ rel, buffer, mediaType: sniffed.mediaType, ext: sniffed.ext })
+    }
+    return list
+  }
+
+  /** 角色 id 列表 → 参考图 rel + 需要塞进提示词的外貌描述。 */
+  async function describeCharacters(ids) {
+    await loadLibrary()
+    const picked = characters.items.filter((item) => ids.includes(item.id))
+    const refs = []
+    for (const item of picked) {
+      for (const rel of item.refs) {
+        if (!refs.includes(rel)) refs.push(rel)
+      }
+    }
+    const notes = picked
+      .map((item) => `- ${item.name}${item.description ? `: ${item.description}` : ''}（外观参考图见附件）`)
+      .join('\n')
+    return { refs, notes }
+  }
+
   /* ---- 密钥 ---- */
 
   let credentials
@@ -439,6 +555,9 @@ export function apply(ctx, rawConfig) {
       format: job.format,
       duration: job.duration,
       resolution: job.resolution,
+      tool: job.tool ?? '',
+      refs: job.refs ?? [],
+      characters: job.characters ?? [],
       status: job.status,
       phase: job.phase,
       error: job.error ?? '',
@@ -471,6 +590,9 @@ export function apply(ctx, rawConfig) {
       format: spec.format ?? 'png',
       duration: spec.duration ?? 5,
       resolution: spec.resolution ?? '720p',
+      tool: spec.tool ?? '',
+      refs: Array.isArray(spec.refs) ? spec.refs : [],
+      characters: Array.isArray(spec.characters) ? spec.characters : [],
       status: 'queued',
       phase: '排队中',
       startedAt: now(),
@@ -513,17 +635,26 @@ export function apply(ctx, rawConfig) {
     if (key === undefined) throw new Error(`没有找到 ${config.apiKeyEnv}，先在 DSH 凭据里配一个再生成`)
 
     const total = clampInt(job.count, 1, 4, 1)
-    const body = { model: job.model, prompt: job.prompt, n: total }
+    const refs = Array.isArray(job.refs) && job.refs.length > 0
+      ? await resolveRefs(job.refs.slice(0, config.maxRefs))
+      : []
     const size = normalizeSize(job.size)
+    const body = { model: job.model, prompt: job.prompt, n: total }
     if (size !== undefined) body.size = size
     if (job.quality !== 'auto') body.quality = job.quality
     if (job.format === 'jpeg' || job.format === 'webp') body.output_format = job.format
 
-    job.phase = '请求中转'
-    const payload = await requestJson(config, key.value, '/images/generations', {
-      body,
-      signal: job.controller.signal,
-    })
+    job.phase = refs.length > 0 ? `上传 ${refs.length} 张参考图` : '请求中转'
+    const payload = refs.length > 0
+      ? await requestMultipart(config, key.value, '/images/edits', {
+        fields: body,
+        files: refs,
+        signal: job.controller.signal,
+      })
+      : await requestJson(config, key.value, '/images/generations', {
+        body,
+        signal: job.controller.signal,
+      })
 
     const items = Array.isArray(payload?.data) ? payload.data : []
     if (items.length === 0) throw new Error('中转没有返回图片数据')
@@ -537,9 +668,12 @@ export function apply(ctx, rawConfig) {
       if (job.controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
       job.phase = `下载第 ${index + 1}/${items.length} 张`
       let buffer
-      if (typeof item?.b64_json === 'string') buffer = Buffer.from(item.b64_json, 'base64')
-      else if (typeof item?.url === 'string') buffer = await downloadBinary(item.url, job.controller.signal)
-      else continue
+      // 有些中转会同时返回 b64_json:"" 和 url，空的 b64 不能当结果
+      if (typeof item?.b64_json === 'string' && item.b64_json.length > 64) buffer = Buffer.from(item.b64_json, 'base64')
+      if ((buffer === undefined || buffer.length === 0) && typeof item?.url === 'string') {
+        buffer = await downloadBinary(item.url, job.controller.signal)
+      }
+      if (buffer === undefined || buffer.length === 0) continue
 
       const sniffed = sniffImage(buffer)
       if (sniffed === undefined) throw new Error('中转返回的不是可识别的图片字节')
@@ -561,6 +695,8 @@ export function apply(ctx, rawConfig) {
         mediaType: sniffed.mediaType,
         size: job.size,
         quality: job.quality,
+        tool: job.tool ?? '',
+        refs: job.refs ?? [],
         durationMs: now() - job.startedAt,
         createdAt: now(),
       }
@@ -704,6 +840,7 @@ export function apply(ctx, rawConfig) {
 
   async function handleState(res) {
     await loadHistory()
+    await loadLibrary()
     const key = await resolveKey()
     if (pricing.at === 0) await refreshPricing(true)
     else if (now() - pricing.at > config.pricingTtlMs) void refreshPricing(false)
@@ -718,8 +855,11 @@ export function apply(ctx, rawConfig) {
         keySource: key?.source ?? '',
         maxConcurrent: config.maxConcurrent,
       },
-      models: { image: config.imageModels, video: config.videoModels },
+      models: { image: config.imageModels, video: config.videoModels, upscale: config.upscaleModels },
       pricing: pricingView(),
+      favorites,
+      characters,
+      limits: { maxRefs: config.maxRefs },
       jobs: [...jobs.values()].map(serializeJob).sort((a, b) => b.startedAt - a.startedAt).slice(0, 30),
       history: history.slice(0, 200),
       running: running.length,
@@ -733,19 +873,44 @@ export function apply(ctx, rawConfig) {
   async function handleGenerate(req, res) {
     const body = await readJsonBody(req)
     const kind = body.kind === 'video' ? 'video' : 'image'
-    const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
-    if (prompt.length === 0) {
-      sendJson(res, 400, { ok: false, error: '提示词不能为空' })
+    const tool = body.tool === 'upscale' ? 'upscale' : ''
+    const rawPrompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+
+    // 4K 增强只吃一张图，提示词可以留空（有默认模板）
+    const refs = Array.isArray(body.refs) ? body.refs.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim()) : []
+    if (refs.length > config.maxRefs) {
+      sendJson(res, 400, { ok: false, error: `最多带 ${config.maxRefs} 张参考图` })
       return
+    }
+    let prompt = rawPrompt
+    let characterRefs = []
+    const characterIds = Array.isArray(body.characters) ? body.characters.filter((item) => typeof item === 'string') : []
+    if (characterIds.length > 0) {
+      const described = await describeCharacters(characterIds)
+      characterRefs = described.refs
+      if (described.notes !== '') prompt = `${prompt}\n\n[角色参考]\n${described.notes}`.trim()
+    }
+    const allRefs = [...new Set([...refs, ...characterRefs])].slice(0, config.maxRefs)
+
+    if (tool === 'upscale' && allRefs.length === 0) {
+      sendJson(res, 400, { ok: false, error: '4K 增强需要先选一张源图' })
+      return
+    }
+    if (prompt.length === 0) {
+      if (tool !== 'upscale') {
+        sendJson(res, 400, { ok: false, error: '提示词不能为空' })
+        return
+      }
+      prompt = 'Upscale this image to 4K. Keep the composition, colors, lighting and every detail identical; only raise the resolution and sharpen the fine details.'
     }
     if (prompt.length > 8_000) {
       sendJson(res, 400, { ok: false, error: '提示词过长（上限 8000 字）' })
       return
     }
-    const pool = kind === 'video' ? config.videoModels : config.imageModels
+    const pool = kind === 'video' ? config.videoModels : (tool === 'upscale' ? config.upscaleModels : config.imageModels)
     const model = typeof body.model === 'string' && body.model.trim() !== '' ? body.model.trim() : pool[0]
     if (!pool.includes(model)) {
-      sendJson(res, 400, { ok: false, error: `模型 ${model} 不在当前允许列表里，改 cordis.patch.yml 的 ${kind === 'video' ? 'videoModels' : 'imageModels'} 再加` })
+      sendJson(res, 400, { ok: false, error: `模型 ${model} 不在当前允许列表里，改 cordis.patch.yml 的 ${kind === 'video' ? 'videoModels' : (tool === 'upscale' ? 'upscaleModels' : 'imageModels')} 再加` })
       return
     }
     if (active.size >= config.maxConcurrent) {
@@ -756,12 +921,15 @@ export function apply(ctx, rawConfig) {
       kind,
       model,
       prompt,
-      size: typeof body.size === 'string' ? body.size : '1024x1024',
+      size: typeof body.size === 'string' ? body.size : (tool === 'upscale' ? '3840x2160' : '1024x1024'),
       quality: typeof body.quality === 'string' ? body.quality : 'auto',
       count: kind === 'image' ? clampInt(body.count, 1, 4, 1) : 1,
       format: ['png', 'jpeg', 'webp'].includes(body.format) ? body.format : 'png',
       duration: clampInt(body.duration, 1, 30, 5),
       resolution: ['480p', '720p', '1080p'].includes(body.resolution) ? body.resolution : '720p',
+      tool,
+      refs: allRefs,
+      characters: characterIds,
     })
     sendJson(res, 200, { ok: true, job: serializeJob(job) })
   }
@@ -832,6 +1000,162 @@ export function apply(ctx, rawConfig) {
     sendJson(res, 404, { ok: false, error: '未知历史操作' })
   }
 
+  /* ---- 收藏 / 角色库 ---- */
+
+  async function requireFile(rel) {
+    const absolute = safePath(rel)
+    if (absolute === undefined) throw new Error('路径不合法')
+    const info = await stat(absolute)
+    if (!info.isFile()) throw new Error('文件不存在')
+    return absolute
+  }
+
+  async function handleFavorites(req, res, segments) {
+    const body = await readJsonBody(req)
+    await loadLibrary()
+    const action = segments[1] ?? ''
+
+    if (action === 'add') {
+      const rel = typeof body.rel === 'string' ? body.rel.trim() : ''
+      try {
+        await requireFile(rel)
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error.message })
+        return
+      }
+      const existing = favorites.items.find((item) => item.rel === rel)
+      if (existing !== undefined) {
+        sendJson(res, 200, { ok: true, favorite: existing, duplicate: true })
+        return
+      }
+      const favorite = {
+        id: `fav-${now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        rel,
+        name: typeof body.name === 'string' ? body.name.trim().slice(0, 120) : '',
+        folderId: typeof body.folderId === 'string' && body.folderId !== '' ? body.folderId : '',
+        createdAt: now(),
+      }
+      favorites.items.unshift(favorite)
+      await saveFavorites()
+      sendJson(res, 200, { ok: true, favorite })
+      return
+    }
+
+    if (action === 'remove') {
+      favorites.items = favorites.items.filter((item) => item.id !== body.id)
+      await saveFavorites()
+      sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (action === 'move') {
+      const target = favorites.items.find((item) => item.id === body.id)
+      if (target === undefined) {
+        sendJson(res, 404, { ok: false, error: '收藏不存在' })
+        return
+      }
+      target.folderId = typeof body.folderId === 'string' ? body.folderId : ''
+      await saveFavorites()
+      sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (action === 'folder') {
+      const mode = body.action === 'create' || body.action === 'rename' || body.action === 'delete' ? body.action : ''
+      if (mode === 'create') {
+        const name = typeof body.name === 'string' ? body.name.trim().slice(0, 40) : ''
+        if (name === '') {
+          sendJson(res, 400, { ok: false, error: '收藏夹名字不能为空' })
+          return
+        }
+        const folder = { id: `folder-${now().toString(36)}-${Math.random().toString(36).slice(2, 5)}`, name, createdAt: now() }
+        favorites.folders.push(folder)
+        await saveFavorites()
+        sendJson(res, 200, { ok: true, folder })
+        return
+      }
+      if (mode === 'rename') {
+        const folder = favorites.folders.find((item) => item.id === body.id)
+        if (folder === undefined) {
+          sendJson(res, 404, { ok: false, error: '收藏夹不存在' })
+          return
+        }
+        if (typeof body.name === 'string' && body.name.trim() !== '') folder.name = body.name.trim().slice(0, 40)
+        await saveFavorites()
+        sendJson(res, 200, { ok: true })
+        return
+      }
+      if (mode === 'delete') {
+        favorites.folders = favorites.folders.filter((item) => item.id !== body.id)
+        for (const item of favorites.items) if (item.folderId === body.id) item.folderId = ''
+        await saveFavorites()
+        sendJson(res, 200, { ok: true })
+        return
+      }
+      sendJson(res, 400, { ok: false, error: '未知收藏夹操作' })
+      return
+    }
+
+    sendJson(res, 404, { ok: false, error: '未知收藏操作' })
+  }
+
+  async function handleCharacters(req, res, segments) {
+    const body = await readJsonBody(req)
+    await loadLibrary()
+    const action = segments[1] ?? ''
+    const refs = Array.isArray(body.refs)
+      ? body.refs.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim()).slice(0, config.maxRefs)
+      : []
+
+    if (action === 'save') {
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 60) : ''
+      if (name === '') {
+        sendJson(res, 400, { ok: false, error: '角色名不能为空' })
+        return
+      }
+      for (const rel of refs) {
+        try {
+          await requireFile(rel)
+        } catch (error) {
+          sendJson(res, 400, { ok: false, error: `${rel}：${error.message}` })
+          return
+        }
+      }
+      const description = typeof body.description === 'string' ? body.description.trim().slice(0, 600) : ''
+      const existing = typeof body.id === 'string' ? characters.items.find((item) => item.id === body.id) : undefined
+      if (existing !== undefined) {
+        existing.name = name
+        existing.description = description
+        existing.refs = refs
+        existing.updatedAt = now()
+        await saveCharacters()
+        sendJson(res, 200, { ok: true, character: existing })
+        return
+      }
+      const character = {
+        id: `char-${now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        description,
+        refs,
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      characters.items.unshift(character)
+      await saveCharacters()
+      sendJson(res, 200, { ok: true, character })
+      return
+    }
+
+    if (action === 'delete') {
+      characters.items = characters.items.filter((item) => item.id !== body.id)
+      await saveCharacters()
+      sendJson(res, 200, { ok: true })
+      return
+    }
+
+    sendJson(res, 404, { ok: false, error: '未知角色操作' })
+  }
+
   function openOutputFolder() {
     const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
     try {
@@ -864,6 +1188,14 @@ export function apply(ctx, rawConfig) {
       }
       if (segments.length === 1 && segments[0] === 'models') {
         await handleModels(res)
+        return
+      }
+      if (segments.length === 2 && segments[0] === 'favorites' && method === 'POST') {
+        await handleFavorites(req, res, segments)
+        return
+      }
+      if (segments.length === 2 && segments[0] === 'characters' && method === 'POST') {
+        await handleCharacters(req, res, segments)
         return
       }
       if (segments.length === 2 && segments[0] === 'pricing' && segments[1] === 'refresh' && method === 'POST') {

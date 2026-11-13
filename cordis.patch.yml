@@ -30,3 +30,9 @@
         pricingTtlMs: 600000
         # 中转 /api/pricing 里的金额单位符号
         currencySymbol: $
+        # 单次最多带几张参考图（角色 / 图生图）
+        maxRefs: 4
+        # 工具库「4K 增强」可用的模型
+        upscaleModels:
+          - gpt-image-2pro-4k
+          - gpt-image-2pro

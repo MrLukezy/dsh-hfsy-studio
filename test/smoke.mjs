@@ -19,6 +19,7 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const outputDir = path.join(here, 'output')
 const live = process.argv.includes('--live')
 const liveVideo = process.argv.includes('--live-video')
+const liveEdit = process.argv.includes('--live-edit')
 
 async function readKeyFromCredentials() {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY
@@ -159,6 +160,17 @@ const traversal = await call('/file?rel=../../evil.txt')
 assert.equal(traversal.status, 400)
 console.log('✓ 路径穿越被拒')
 
+/* ---------------------------------------------------------------- 收藏 / 角色 / 工具 */
+
+const badFav = await call('/favorites/add', { method: 'POST', body: { rel: '../evil.png' } })
+assert.equal(badFav.status, 400)
+const badChar = await call('/characters/save', { method: 'POST', body: { name: '  ' } })
+assert.equal(badChar.status, 400)
+const noSource = await call('/generate', { method: 'POST', body: { kind: 'image', tool: 'upscale', model: 'gpt-image-2pro-4k' } })
+assert.equal(noSource.status, 400)
+assert.match(noSource.payload.error, /源图/u)
+console.log('✓ 收藏 / 角色 / 4K 参数校验')
+
 async function runLive() {
   /* -------------------------------------------------------------- 真实生成 */
 
@@ -241,10 +253,75 @@ async function runLiveVideo() {
   console.log('✓ /file 可回读视频')
 }
 
-if (live || liveVideo) {
+async function runLiveEdit() {
+  assert.equal(state.payload.config.hasKey, true, '真实图生图需要 OPENAI_API_KEY')
+  await runLive()
+
+  const entry = state.payload.history.length > 0 ? state.payload.history[0] : undefined
+  const stateNow = await call('/state')
+  const source = stateNow.payload.history[0]
+  assert.ok(source, '需要一条历史图才能测收藏 / 角色 / 4K')
+  console.log('✓ 源图', source.rel)
+
+  const fav = await call('/favorites/add', { method: 'POST', body: { rel: source.rel } })
+  assert.equal(fav.payload.ok, true, JSON.stringify(fav.payload))
+  console.log('✓ 收藏已写入 favorites.json')
+
+  const character = await call('/characters/save', {
+    method: 'POST',
+    body: { name: '测试角色', description: 'a blue glowing sword icon, flat vector', refs: [source.rel] },
+  })
+  assert.equal(character.payload.ok, true, JSON.stringify(character.payload))
+  console.log('✓ 角色已保存', character.payload.character.id)
+
+  const withRefs = await call('/generate', {
+    method: 'POST',
+    body: { kind: 'image', model: 'gpt-image-2', prompt: 'the same icon but tinted emerald green', count: 1, refs: [source.rel] },
+  })
+  assert.equal(withRefs.status, 200, JSON.stringify(withRefs.payload))
+  console.log('✓ 提交图生图', withRefs.payload.job.id)
+
+  const deadline = Date.now() + 240_000
+  let job
+  for (;;) {
+    const snapshot = await call('/state')
+    job = snapshot.payload.jobs.find((item) => item.id === withRefs.payload.job.id)
+    if (job && (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled')) break
+    if (Date.now() > deadline) throw new Error('图生图超时')
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  if (job.status !== 'succeeded') throw new Error(`图生图失败：${job.error}`)
+  assert.equal(job.results.length, 1)
+  assert.deepEqual(job.results[0].refs, [source.rel])
+  console.log('✓ 图生图完成', JSON.stringify({ file: job.results[0].file, bytes: job.results[0].bytes, ms: job.elapsedMs }))
+
+  const up = await call('/generate', {
+    method: 'POST',
+    body: { kind: 'image', tool: 'upscale', model: 'gpt-image-2pro-4k', size: '3840x2160', refs: [source.rel], count: 1 },
+  })
+  assert.equal(up.status, 200, JSON.stringify(up.payload))
+  const deadline2 = Date.now() + 300_000
+  let upJob
+  for (;;) {
+    const snapshot = await call('/state')
+    upJob = snapshot.payload.jobs.find((item) => item.id === up.payload.job.id)
+    if (upJob && (upJob.status === 'succeeded' || upJob.status === 'failed' || upJob.status === 'cancelled')) break
+    if (Date.now() > deadline2) throw new Error('4K 超时')
+    await new Promise((resolve) => setTimeout(resolve, 2000))
+  }
+  if (upJob.status !== 'succeeded') throw new Error(`4K 失败：${upJob.error}`)
+  const out = upJob.results[0]
+  assert.equal(out.width, 3840)
+  assert.equal(out.height, 2160)
+  assert.equal(out.tool, 'upscale')
+  console.log('✓ 4K 增强完成', JSON.stringify({ file: out.file, size: `${out.width}x${out.height}`, bytes: out.bytes }))
+}
+
+if (live || liveVideo || liveEdit) {
   try {
     if (live) await runLive()
     if (liveVideo) await runLiveVideo()
+    if (liveEdit) await runLiveEdit()
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }

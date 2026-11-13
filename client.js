@@ -81,6 +81,36 @@ window.__ModuleLoader__.load({
         preview: '预览',
         customSize: '自定义 WxH',
         loadFailed: '读取工作台数据失败',
+        refs: '参考图',
+        addRefs: '选参考图',
+        refsHint: '带参考图时走 /images/edits（图生图 / 角色一致性）',
+        refsLimit: '最多',
+        clearRefs: '清空参考图',
+        characters: '角色',
+        addCharacter: '存为角色',
+        characterName: '角色名',
+        characterDesc: '外貌 / 服装描述（会写进提示词）',
+        characterEmpty: '还没有角色。先选参考图，再点「存为角色」。',
+        saveCharacter: '保存角色',
+        deleteCharacter: '删除角色',
+        favorites: '收藏',
+        favorite: '收藏',
+        favorited: '已收藏',
+        unfavorite: '取消收藏',
+        allFolders: '全部',
+        newFolder: '新建收藏夹',
+        folderName: '收藏夹名字',
+        favEmpty: '还没有收藏。在历史或画廊里点 ☆ 就能收藏。',
+        moveTo: '移动到',
+        tools: '工具库',
+        upscale: '4K 增强',
+        upscaleHint: '把选中的图放大到 4K，只提清晰度、不改内容',
+        source: '源图',
+        pickSource: '选一张源图',
+        runTool: '生成 4K',
+        pickTitle: '从历史 / 收藏里挑图',
+        selected: '已选',
+        cancel: '取消',
       }
       : {
         title: 'Image Studio',
@@ -138,6 +168,36 @@ window.__ModuleLoader__.load({
         preview: 'Preview',
         customSize: 'Custom WxH',
         loadFailed: 'Could not load studio state',
+        refs: 'References',
+        addRefs: 'Pick references',
+        refsHint: 'With references the request goes to /images/edits (image-to-image, character consistency)',
+        refsLimit: 'max',
+        clearRefs: 'Clear references',
+        characters: 'Characters',
+        addCharacter: 'Save as character',
+        characterName: 'Name',
+        characterDesc: 'Look / outfit description (goes into the prompt)',
+        characterEmpty: 'No characters yet. Pick references first, then save as a character.',
+        saveCharacter: 'Save',
+        deleteCharacter: 'Delete',
+        favorites: 'Favorites',
+        favorite: 'Favorite',
+        favorited: 'Favorited',
+        unfavorite: 'Unfavorite',
+        allFolders: 'All',
+        newFolder: 'New folder',
+        folderName: 'Folder name',
+        favEmpty: 'Nothing favorited yet. Hit ☆ on a tile to keep it.',
+        moveTo: 'Move to',
+        tools: 'Tools',
+        upscale: '4K upscale',
+        upscaleHint: 'Blow one image up to 4K — sharper detail only, layout untouched',
+        source: 'Source',
+        pickSource: 'Pick a source image',
+        runTool: 'Make 4K',
+        pickTitle: 'Pick from history / favorites',
+        selected: 'selected',
+        cancel: 'Cancel',
       }
 
     /** 常用尺寸：gpt-image 系只吃这几档，别的走自定义。 */
@@ -209,7 +269,7 @@ window.__ModuleLoader__.load({
       '.hs-note.error{border-style:solid;border-color:color-mix(in srgb,var(--dsw-alias-label-error,#e5534b) 45%,transparent);background:color-mix(in srgb,var(--dsw-alias-label-error,#e5534b) 10%,transparent);color:var(--dsw-alias-label-error,#e5534b)}',
       '.hs-main{display:flex;flex-direction:column;gap:12px;min-height:0;min-width:0}',
       '.hs-scroll{flex:1;min-height:0;overflow-y:auto;padding-right:4px;overscroll-behavior:contain}',
-      '.hs-section-head{display:flex;align-items:center;gap:8px;margin:2px 0 8px;color:var(--dsw-alias-label-tertiary,#8a8f95);font-size:11.5px;letter-spacing:.3px;text-transform:uppercase}',
+      '.hs-section-head{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;margin:2px 0 8px;color:var(--dsw-alias-label-tertiary,#8a8f95);font-size:11.5px;letter-spacing:.3px;text-transform:uppercase}',
       '.hs-section-head .hs-count{margin-left:auto;text-transform:none;letter-spacing:0}',
       '.hs-job{display:flex;flex-direction:column;gap:8px;padding:11px 12px;margin-bottom:10px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.3));border-radius:10px;background:var(--dsw-alias-bg-layer-1,#1b1b1d)}',
       '.hs-job-head{display:flex;align-items:center;gap:8px}',
@@ -232,6 +292,23 @@ window.__ModuleLoader__.load({
       '.hs-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;height:100%;min-height:180px;border:1px dashed var(--dsw-alias-border-l2,rgba(127,127,127,.3));border-radius:12px;color:var(--dsw-alias-label-tertiary,#8a8f95);font-size:12.5px;text-align:center;padding:24px}',
       '.hs-lightbox{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:36px;background:rgba(0,0,0,.78)}',
       '.hs-lightbox img,.hs-lightbox video{max-width:100%;max-height:calc(100vh - 96px);border-radius:10px;box-shadow:0 24px 60px rgba(0,0,0,.55)}',
+      '.hs-tabsline{display:flex;gap:6px;align-items:center}',
+      '.hs-tab.sm{flex:0 0 auto;height:26px;padding:0 12px;font-size:12px;white-space:nowrap}',
+      '.hs-link{border:none;background:none;color:var(--dsw-alias-brand-primary,#4d6bfe);font:inherit;font-size:11.5px;cursor:pointer;padding:0}',
+      '.hs-ref{position:relative;width:52px;height:52px;border-radius:8px;overflow:hidden;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28))}',
+      '.hs-ref img{width:100%;height:100%;object-fit:cover;display:block}',
+      '.hs-ref-x{position:absolute;top:2px;right:2px;width:16px;height:16px;line-height:14px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:11px;cursor:pointer;padding:0}',
+      '.hs-thumb{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28))}',
+      '.hs-thumb.wide{width:100%;height:auto;max-height:44vh;object-fit:contain;background:var(--dsw-alias-bg-layer-2,#161618)}',
+      '.hs-modal{width:min(760px,92vw);max-height:86vh;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:18px;border-radius:14px;background:var(--dsw-alias-bg-base,#111);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.28))}',
+      '.hs-modal.narrow{width:min(520px,92vw)}',
+      '.hs-modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}',
+      '.hs-pickgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}',
+      '.hs-pick{padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:var(--dsw-alias-bg-layer-2,#161618);cursor:pointer;aspect-ratio:1}',
+      '.hs-pick[data-active="true"]{border-color:var(--dsw-alias-brand-primary,#4d6bfe)}',
+      '.hs-pick img{width:100%;height:100%;object-fit:cover;display:block}',
+      '.hs-star{position:absolute;top:6px;right:6px;width:22px;height:22px;border:none;border-radius:50%;background:rgba(0,0,0,.45);color:#fff;font-size:12px;cursor:pointer;padding:0;z-index:2}',
+      '.hs-star[data-on="true"]{color:#f5c451}',
       '.hs-lb-bar{position:absolute;top:14px;right:14px;display:flex;gap:8px}',
       '.hs-lb-bar button{height:30px;padding:0 12px;border:1px solid rgba(255,255,255,.24);border-radius:8px;background:rgba(0,0,0,.5);color:#fff;font:inherit;font-size:12px;cursor:pointer}',
       '.hs-toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:70;padding:8px 14px;border-radius:8px;background:var(--dsw-alias-toast-bg,rgba(30,30,30,.92));color:var(--dsw-alias-toast-label,#fff);font-size:12px;box-shadow:0 8px 28px rgba(0,0,0,.35)}',
@@ -324,12 +401,26 @@ window.__ModuleLoader__.load({
         isVideo
           ? h('video', { className: 'hs-tile-media', src: fileSrc(entry.rel), muted: true, playsInline: true, preload: 'metadata', onClick: () => props.onOpen(entry) })
           : h('img', { className: 'hs-tile-media', src: fileSrc(entry.rel), alt: entry.prompt || entry.file, loading: 'lazy', onClick: () => props.onOpen(entry) }),
-        h('span', { className: 'hs-tile-badge' }, isVideo ? 'VIDEO' : 'IMAGE'),
+        h('span', { className: 'hs-tile-badge' }, isVideo ? 'VIDEO' : (entry.tool === 'upscale' ? '4K' : 'IMAGE')),
+        props.onFavorite === undefined
+          ? null
+          : h('button', {
+            type: 'button',
+            className: 'hs-star',
+            'data-on': String(Boolean(props.favorited)),
+            title: props.favorited ? T.unfavorite : T.favorite,
+            onClick: (event) => { event.stopPropagation(); props.onFavorite(entry) },
+          }, props.favorited ? '★' : '☆'),
         h('div', { className: 'hs-tile-acts' },
           h('button', { type: 'button', className: 'hs-mini', onClick: () => props.onOpen(entry) }, T.preview),
           h('a', { className: 'hs-mini', style: { display: 'grid', placeItems: 'center', textDecoration: 'none' }, href: fileSrc(entry.rel), download: entry.file }, T.download),
+          props.onUseAsRef === undefined || isVideo
+            ? null
+            : h('button', { type: 'button', className: 'hs-mini', onClick: () => props.onUseAsRef(entry) }, T.refs),
           h('button', { type: 'button', className: 'hs-mini', onClick: () => props.onCopy(entry) }, T.copyPath),
-          h('button', { type: 'button', className: 'hs-mini', onClick: () => props.onDelete(entry) }, '×')),
+          props.onDelete === undefined
+            ? null
+            : h('button', { type: 'button', className: 'hs-mini', onClick: () => props.onDelete(entry) }, '×')),
         h('figcaption', { className: 'hs-tile-meta' },
           h('span', { className: 'hs-ellip', title: entry.prompt }, entry.prompt || entry.file),
           h('span', null, formatBytes(entry.bytes))),
@@ -375,6 +466,13 @@ window.__ModuleLoader__.load({
       const [format, setFormat] = useState(saved.format || 'png')
       const [duration, setDuration] = useState(saved.duration || 5)
       const [resolution, setResolution] = useState(saved.resolution || '720p')
+      const [refs, setRefs] = useState(() => Array.isArray(saved.refs) ? saved.refs : [])
+      const [pickedChars, setPickedChars] = useState(() => Array.isArray(saved.characters) ? saved.characters : [])
+      const [tab, setTab] = useState('history')
+      const [folderId, setFolderId] = useState('')
+      const [picker, setPicker] = useState(null)
+      const [charDraft, setCharDraft] = useState(null)
+      const [toolSource, setToolSource] = useState(null)
       const aliveRef = useRef(true)
 
       const load = useCallback(async (silent) => {
@@ -467,9 +565,9 @@ window.__ModuleLoader__.load({
       })()
 
       useEffect(() => {
-        const payload = { kind, model: activeModel, prompt, size, customSize, quality, count, format, duration, resolution }
+        const payload = { kind, model: activeModel, prompt, size, customSize, quality, count, format, duration, resolution, refs, characters: pickedChars }
         writeForm(payload)
-      }, [kind, activeModel, prompt, size, customSize, quality, count, format, duration, resolution])
+      }, [kind, activeModel, prompt, size, customSize, quality, count, format, duration, resolution, refs, pickedChars])
 
       useEffect(() => {
         if (lightbox === null) return undefined
@@ -501,6 +599,8 @@ window.__ModuleLoader__.load({
               format,
               duration,
               resolution,
+              refs: kind === 'image' ? refs : [],
+              characters: kind === 'image' ? pickedChars : [],
             },
           })
           await load(true)
@@ -508,6 +608,88 @@ window.__ModuleLoader__.load({
           setError(caught.message)
         } finally {
           setBusy(false)
+        }
+      }
+
+      /* ---- 收藏 / 角色 / 工具 ---- */
+
+      const favoriteIds = new Set((state?.favorites?.items ?? []).map((item) => item.rel))
+      const allFavorites = state?.favorites?.items ?? []
+      const favorites = folderId === '' ? allFavorites : allFavorites.filter((item) => item.folderId === folderId)
+      const characters = state?.characters?.items ?? []
+      const maxRefs = state?.limits?.maxRefs ?? 4
+
+      /** 把某张图加进参考图（去重、限个数）。 */
+      const addRef = (entry) => {
+        setRefs((current) => (current.includes(entry.rel) ? current : [...current, entry.rel].slice(0, maxRefs)))
+      }
+
+      const toggleFavorite = async (entry) => {
+        const hit = (state?.favorites?.items ?? []).find((item) => item.rel === entry.rel)
+        try {
+          if (hit === undefined) {
+            await api('/favorites/add', { method: 'POST', body: { rel: entry.rel } })
+            setToast(T.favorited)
+          } else {
+            await api('/favorites/remove', { method: 'POST', body: { id: hit.id } })
+            setToast(T.unfavorite)
+          }
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        }
+      }
+
+      const newFolder = async () => {
+        const name = window.prompt(T.folderName)
+        if (name === null || name.trim() === '') return
+        try {
+          await api('/favorites/folder', { method: 'POST', body: { action: 'create', name: name.trim() } })
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        }
+      }
+
+      const moveFavorite = async (favorite, target) => {
+        try {
+          await api('/favorites/move', { method: 'POST', body: { id: favorite.id, folderId: target } })
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        }
+      }
+
+      const saveCharacter = async (draft) => {
+        try {
+          await api('/characters/save', { method: 'POST', body: draft })
+          setCharDraft(null)
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        }
+      }
+
+      const deleteCharacter = async (id) => {
+        try {
+          await api('/characters/delete', { method: 'POST', body: { id } })
+          setPickedChars((current) => current.filter((item) => item !== id))
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        }
+      }
+
+      const runUpscale = async (source, model, size) => {
+        try {
+          await api('/generate', {
+            method: 'POST',
+            body: { kind: 'image', tool: 'upscale', model, size, prompt: '', refs: [source], count: 1, format: 'png' },
+          })
+          setToolSource(null)
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
         }
       }
 
@@ -599,6 +781,42 @@ window.__ModuleLoader__.load({
               })),
 
             kind === 'image'
+              ? h(Field, {
+                label: `${T.refs} ${refs.length}/${maxRefs}`,
+                extra: h('button', { type: 'button', className: 'hs-link', onClick: () => setPicker('refs') }, `+ ${T.addRefs}`),
+              },
+              refs.length === 0
+                ? h('div', { className: 'hs-note' }, T.refsHint)
+                : h('div', { className: 'hs-chips' },
+                  refs.map((rel) => h('div', { key: rel, className: 'hs-ref' },
+                    h('img', { src: fileSrc(rel), alt: '' }),
+                    h('button', { type: 'button', className: 'hs-ref-x', title: T.remove, onClick: () => setRefs((current) => current.filter((item) => item !== rel)) }, '\u00d7')),
+                  h('button', { type: 'button', className: 'hs-link', onClick: () => setRefs([]) }, T.clearRefs))))
+              : null,
+
+            kind === 'image'
+              ? h(Field, {
+                label: T.characters,
+                extra: refs.length === 0 ? null : h('button', { type: 'button', className: 'hs-link', onClick: () => setCharDraft({ refs }) }, `+ ${T.addCharacter}`),
+              },
+              characters.length === 0
+                ? h('div', { className: 'hs-note' }, T.characterEmpty)
+                : h('div', { className: 'hs-chips' },
+                  characters.map((character) => h('button', {
+                    key: character.id,
+                    type: 'button',
+                    className: 'hs-pill',
+                    'data-active': String(pickedChars.includes(character.id)),
+                    title: [character.name, character.description].filter(Boolean).join(' · '),
+                    onClick: () => setPickedChars((current) => (current.includes(character.id) ? current.filter((item) => item !== character.id) : [...current, character.id])),
+                    onContextMenu: (event) => {
+                      event.preventDefault()
+                      if (window.confirm(`${T.deleteCharacter}：${character.name}?`)) void deleteCharacter(character.id)
+                    },
+                  }, character.name))))
+              : null,
+
+            kind === 'image'
               ? h(Field, { label: T.size },
                 h('div', { className: 'hs-chips' },
                   SIZE_PRESETS.map((item) => h('button', {
@@ -645,6 +863,10 @@ window.__ModuleLoader__.load({
                   onClick: () => setPrompt((current) => (current.trim() === '' ? item.text : `${current.replace(/[,，\s]+$/u, '')}, ${item.text}`)),
                 }, item.label)))),
 
+            h(Field, { label: T.tools },
+              h('div', { className: 'hs-chips' },
+                h('button', { type: 'button', className: 'hs-pill', onClick: () => setPicker('upscale') }, T.upscale))),
+
             h('div', { className: 'hs-actions' },
               h('button', {
                 type: 'button',
@@ -683,10 +905,37 @@ window.__ModuleLoader__.load({
                   })))
                 : null,
 
+              tab === 'favorites'
+                ? h('div', null,
+                  h('div', { className: 'hs-chips', style: { marginBottom: '10px' } },
+                    h('button', { type: 'button', className: 'hs-pill', 'data-active': String(folderId === ''), onClick: () => setFolderId('') }, T.allFolders),
+                    (state?.favorites?.folders ?? []).map((folder) => h('button', {
+                      key: folder.id,
+                      type: 'button',
+                      className: 'hs-pill',
+                      'data-active': String(folderId === folder.id),
+                      onClick: () => setFolderId(folder.id),
+                    }, folder.name)),
+                    h('button', { type: 'button', className: 'hs-pill', onClick: () => void newFolder() }, `+ ${T.newFolder}`)),
+                  favorites.length === 0
+                    ? h('div', { className: 'hs-empty' }, h('div', null, T.favEmpty))
+                    : h('div', { className: 'hs-grid' },
+                      favorites.map((favorite) => h(Tile, {
+                        key: favorite.id,
+                        entry: { id: favorite.id, rel: favorite.rel, file: favorite.rel.split('/').pop(), kind: favorite.rel.endsWith('.mp4') ? 'video' : 'image', prompt: favorite.name, createdAt: favorite.createdAt },
+                        onOpen: setLightbox,
+                        onCopy: copyPath,
+                        favorited: true,
+                        onFavorite: () => toggleFavorite(favorite),
+                        onUseAsRef: addRef,
+                      }))))
+                : null,
               h('div', { className: 'hs-section-head' },
-                T.history,
-                h('span', { className: 'hs-count' }, `${history.length} / ${state?.stats?.count ?? 0}`)),
-              history.length === 0
+                h('div', { className: 'hs-tabsline' },
+                  h('button', { type: 'button', className: 'hs-tab sm', 'data-active': String(tab === 'history'), onClick: () => setTab('history') }, `${T.history} ${history.length}`),
+                  h('button', { type: 'button', className: 'hs-tab sm', 'data-active': String(tab === 'favorites'), onClick: () => setTab('favorites') }, `${T.favorites} ${allFavorites.length}`)),
+                h('span', { className: 'hs-count' }, tab === 'history' ? `${state?.stats?.count ?? 0}` : `${favorites.length}`)),
+              tab === 'favorites' ? null : history.length === 0
                 ? h('div', { className: 'hs-empty' },
                   h(StudioGlyph, { size: 34 }),
                   h('div', null, state === null ? T.loading : hasRunning ? T.runningEmpty : T.empty))
@@ -697,11 +946,71 @@ window.__ModuleLoader__.load({
                     onOpen: setLightbox,
                     onCopy: copyPath,
                     onDelete: deleteEntry,
+                    favorited: favoriteIds.has(entry.rel),
+                    onFavorite: toggleFavorite,
+                    onUseAsRef: addRef,
                   })))))),
+
+        picker !== null
+          ? h('div', { className: 'hs-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setPicker(null) },
+            h('div', { className: 'hs-modal', onClick: (event) => event.stopPropagation() },
+              h('div', { className: 'hs-modal-head' },
+                h('strong', null, picker === 'refs' ? T.addRefs : T.pickSource),
+                h('button', { type: 'button', className: 'hs-pill', onClick: () => setPicker(null) }, T.close)),
+              h('div', { className: 'hs-pickgrid' },
+                history.filter((entry) => entry.kind === 'image').slice(0, 60).map((entry) => h('button', {
+                  key: entry.id,
+                  type: 'button',
+                  className: 'hs-pick',
+                  'data-active': String(picker === 'refs' ? refs.includes(entry.rel) : toolSource === entry.rel),
+                  onClick: () => (picker === 'refs'
+                    ? setRefs((current) => (current.includes(entry.rel) ? current.filter((item) => item !== entry.rel) : [...current, entry.rel].slice(0, maxRefs)))
+                    : (setToolSource(entry.rel), setPicker(null))),
+                }, h('img', { src: fileSrc(entry.rel), alt: '', loading: 'lazy' }))))))
+          : null,
+
+        charDraft !== null
+          ? h('div', { className: 'hs-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setCharDraft(null) },
+            h('form', {
+              className: 'hs-modal narrow',
+              onClick: (event) => event.stopPropagation(),
+              onSubmit: (event) => {
+                event.preventDefault()
+                const data = new FormData(event.currentTarget)
+                void saveCharacter({
+                  name: String(data.get('name') ?? '').trim(),
+                  description: String(data.get('description') ?? '').trim(),
+                  refs: charDraft.refs,
+                  ...(charDraft.id === undefined ? {} : { id: charDraft.id }),
+                })
+              },
+            },
+            h('div', { className: 'hs-modal-head' }, h('strong', null, T.addCharacter)),
+            h(Field, { label: T.characterName }, h('input', { className: 'hs-control', name: 'name', defaultValue: charDraft.name ?? '', required: true, maxLength: 60 })),
+            h(Field, { label: T.characterDesc }, h('textarea', { className: 'hs-control', name: 'description', rows: 3, defaultValue: charDraft.description ?? '', maxLength: 600 })),
+            h('div', { className: 'hs-chips' }, charDraft.refs.map((rel) => h('img', { key: rel, className: 'hs-thumb', src: fileSrc(rel), alt: '' }))),
+            h('div', { className: 'hs-actions' },
+              h('button', { type: 'submit', className: 'hs-button primary' }, T.saveCharacter),
+              h('button', { type: 'button', className: 'hs-button', onClick: () => setCharDraft(null) }, T.cancel))))
+          : null,
+
+        toolSource !== null
+          ? h('div', { className: 'hs-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setToolSource(null) },
+            h('div', { className: 'hs-modal narrow', onClick: (event) => event.stopPropagation() },
+              h('div', { className: 'hs-modal-head' },
+                h('strong', null, `${T.tools} · ${T.upscale}`),
+                h('button', { type: 'button', className: 'hs-pill', onClick: () => setToolSource(null) }, T.close)),
+              h('img', { className: 'hs-thumb wide', src: fileSrc(toolSource), alt: '' }),
+              h('div', { className: 'hs-note' }, T.upscaleHint),
+              h('div', { className: 'hs-actions' },
+                h('button', { type: 'button', className: 'hs-button primary', onClick: () => void runUpscale(toolSource, 'gpt-image-2pro-4k', '3840x2160') }, `${T.runTool} · 3840×2160`),
+                h('button', { type: 'button', className: 'hs-button', onClick: () => void runUpscale(toolSource, 'gpt-image-2pro-4k', '2160x3840') }, `${T.runTool} · 2160×3840`))))
+          : null,
 
         lightbox
           ? h('div', { className: 'hs-lightbox', role: 'dialog', 'aria-modal': 'true', onClick: () => setLightbox(null) },
             h('div', { className: 'hs-lb-bar', onClick: (event) => event.stopPropagation() },
+              h('button', { type: 'button', onClick: () => void toggleFavorite(lightbox) }, favoriteIds.has(lightbox.rel) ? `\u2605 ${T.unfavorite}` : `\u2606 ${T.favorite}`),
               h('a', { href: fileSrc(lightbox.rel), download: lightbox.file, style: { textDecoration: 'none', display: 'grid', placeItems: 'center' } }, h('button', { type: 'button' }, T.download)),
               h('button', { type: 'button', onClick: () => setLightbox(null) }, T.close)),
             lightbox.kind === 'video'
