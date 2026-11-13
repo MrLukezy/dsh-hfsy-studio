@@ -62,7 +62,11 @@ window.__ModuleLoader__.load({
         keyMissing: '缺少密钥',
         keySource: '来源',
         outputDir: '输出目录',
-        videoWarn: '当前 hfsy 中转没有给 Seedance 配置价格，提交会返回 model_price_error。换成开通了视频的中转或 apiKey 后即可出片。',
+        videoNote: '视频走中转的 /video/create + /video/query，按秒计费，通常要等 1~3 分钟；同一模型不同清晰度价格不同，选题前看下拉里的标价。',
+        priceUnset: '未标价',
+        perSecond: '/ 秒',
+        perImage: '/ 张',
+        estimate: '预计',
         failed: '失败',
         cancelled: '已取消',
         done: '已完成',
@@ -115,7 +119,11 @@ window.__ModuleLoader__.load({
         keyMissing: 'Missing key',
         keySource: 'source',
         outputDir: 'Output',
-        videoWarn: 'This relay has no price configured for Seedance yet, so a submit returns model_price_error. Point it at a relay with video enabled to generate clips.',
+        videoNote: 'Video goes through the relay /video/create + /video/query and bills per second; expect 1–3 minutes. Prices differ per resolution — check the dropdown.',
+        priceUnset: 'no price',
+        perSecond: '/ sec',
+        perImage: '/ image',
+        estimate: 'est.',
         failed: 'Failed',
         cancelled: 'Cancelled',
         done: 'Done',
@@ -153,6 +161,7 @@ window.__ModuleLoader__.load({
 
     const QUALITIES = ['auto', 'low', 'medium', 'high']
     const FORMATS = ['png', 'jpeg', 'webp']
+    const DURATIONS = [4, 5, 6, 8, 10, 15, 20, 30]
 
     /* ------------------------------------------------------------------ 样式 */
 
@@ -177,6 +186,7 @@ window.__ModuleLoader__.load({
       '.hs-tab[data-active="true"]{background:var(--dsw-alias-bg-base,#fff);color:var(--dsw-alias-label-primary,#111);font-weight:500;box-shadow:0 1px 3px rgba(0,0,0,.14)}',
       '.hs-field{display:flex;flex-direction:column;gap:6px}',
       '.hs-label{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--dsw-alias-label-tertiary,#8a8f95);font-size:11.5px}',
+      '.hs-price{font-variant-numeric:tabular-nums;color:var(--dsw-alias-brand-primary,#4d6bfe);white-space:nowrap}',
       '.hs-control{width:100%;box-sizing:border-box;min-height:32px;padding:6px 9px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.3));border-radius:8px;background:var(--dsw-alias-bg-layer-2,#232325);color:var(--dsw-alias-label-primary,#eee);font:inherit;font-size:12.5px;outline:none}',
       '.hs-control:focus{border-color:var(--dsw-alias-brand-primary,#4c8dff)}',
       '.hs-control[disabled]{opacity:.6;cursor:not-allowed}',
@@ -397,6 +407,13 @@ window.__ModuleLoader__.load({
         return () => { window.clearInterval(timer) }
       }, [hasRunning, load])
 
+      // 宿主第一轮拉价目表可能还没回来，这里补几次，别让页面一直停在「…」
+      useEffect(() => {
+        if (state === undefined || state?.pricing?.ok !== false) return undefined
+        const timer = window.setTimeout(() => { void load(true) }, 2500)
+        return () => { window.clearTimeout(timer) }
+      }, [state, load])
+
       // 完成瞬间再拉一次，把任务卡换成画廊里的成品
       useEffect(() => {
         if (hasRunning) return
@@ -407,6 +424,47 @@ window.__ModuleLoader__.load({
       const models = state?.models ?? { image: [], video: [] }
       const pool = kind === 'video' ? models.video : models.image
       const activeModel = pool.includes(model) ? model : (pool[0] ?? '')
+
+      // 视频模型的清晰度写死在名字里（sd-2-fast-480 / wan-3.0-720 …），选模型时跟着走
+      useEffect(() => {
+        if (kind !== 'video') return
+        const match = /(480|720|1080)/u.exec(activeModel)
+        if (match !== null) setResolution(`${match[1]}p`)
+      }, [kind, activeModel])
+
+      /* ---- 价格展示 ---- */
+      const pricing = state?.pricing ?? { ok: false, models: {}, currency: '$', error: '' }
+      const symbol = pricing.currency || '$'
+      const money = (value) => `${symbol}${Number(value || 0).toFixed(2)}`
+      const priceOf = (id) => (pricing.models ? pricing.models[id] : undefined)
+
+      /** 下拉里的选项：模型名 + 单价，鼠标悬浮看说明。 */
+      const optionLabel = (id) => {
+        const item = priceOf(id)
+        if (item === undefined) return id
+        return `${id} · ${money(item.price)}${item.perSecond ? T.perSecond : T.perImage}`
+      }
+
+      /** 模型行右侧的单价与本次预计花费。 */
+      const priceLine = (id) => {
+        const item = priceOf(id)
+        if (item === undefined) return h('span', { className: 'hs-price' }, pricing.ok ? T.priceUnset : '…')
+        if (item.perSecond) {
+          return h('span', { className: 'hs-price' }, `${money(item.price)}${T.perSecond} · ${duration}s ≈ ${money(item.price * duration)}`)
+        }
+        const total = item.price * count
+        return h('span', { className: 'hs-price' }, count > 1
+          ? `${money(item.price)}${T.perImage} ×${count} ≈ ${money(total)}`
+          : `${money(item.price)}${T.perImage}`)
+      }
+
+      /** 生成按钮上的预计花费；没有标价就返回空串。 */
+      const estimate = (() => {
+        const item = priceOf(activeModel)
+        if (item === undefined) return ''
+        const total = item.perSecond ? item.price * duration : item.price * count
+        return `${T.estimate} ${money(total)}`
+      })()
 
       useEffect(() => {
         const payload = { kind, model: activeModel, prompt, size, customSize, quality, count, format, duration, resolution }
@@ -497,7 +555,7 @@ window.__ModuleLoader__.load({
         h('header', { className: 'hs-head' },
           h('div', { className: 'hs-title' }, T.title, h('span', { className: 'hs-sub' }, T.subtitle)),
           h('div', { className: 'hs-head-meta' },
-            h('button', { type: 'button', className: 'hs-pill', onClick: () => void load(false) }, T.refresh),
+            h('button', { type: 'button', className: 'hs-pill', onClick: () => { void api('/pricing/refresh', { method: 'POST' }).catch(() => {}); void load(false) } }, T.refresh),
             config
               ? h('span', { className: `hs-chip ${config.hasKey ? 'ok' : 'warn'}` },
                 h('i', { className: `hs-dot ${config.hasKey ? 'ok' : 'warn'}` }),
@@ -515,15 +573,15 @@ window.__ModuleLoader__.load({
               h('button', { type: 'button', className: 'hs-tab', 'data-active': String(kind === 'image'), onClick: () => setKind('image') }, T.image),
               h('button', { type: 'button', className: 'hs-tab', 'data-active': String(kind === 'video'), onClick: () => setKind('video') }, T.video)),
 
-            kind === 'video' ? h('div', { className: 'hs-note warn' }, T.videoWarn) : null,
+            kind === 'video' ? h('div', { className: 'hs-note' }, T.videoNote) : null,
 
-            h(Field, { label: T.model },
+            h(Field, { label: T.model, extra: priceLine(activeModel) },
               h('select', {
                 className: 'hs-control',
                 value: activeModel,
                 onChange: (event) => setModel(event.target.value),
                 disabled: pool.length === 0,
-              }, pool.length === 0 ? h('option', { value: '' }, '—') : pool.map((id) => h('option', { key: id, value: id }, id)))),
+              }, pool.length === 0 ? h('option', { value: '' }, '—') : pool.map((id) => h('option', { key: id, value: id }, optionLabel(id))))),
 
             h(Field, { label: T.prompt, extra: h('span', null, `${prompt.length}/8000`) },
               h('textarea', {
@@ -560,7 +618,7 @@ window.__ModuleLoader__.load({
               : h('div', { className: 'hs-row' },
                 h(Field, { label: T.duration },
                   h('select', { className: 'hs-control', value: String(duration), onChange: (event) => setDuration(Number(event.target.value)) },
-                    [5, 10].map((value) => h('option', { key: value, value: String(value) }, `${value}s`)))),
+                    DURATIONS.map((value) => h('option', { key: value, value: String(value) }, `${value}s`)))),
                 h(Field, { label: T.resolution },
                   h('select', { className: 'hs-control', value: resolution, onChange: (event) => setResolution(event.target.value) },
                     ['480p', '720p', '1080p'].map((value) => h('option', { key: value, value }, value))))),
@@ -593,7 +651,7 @@ window.__ModuleLoader__.load({
                 className: 'hs-button primary',
                 disabled: busy || prompt.trim() === '' || activeModel === '',
                 onClick: () => void generate(),
-              }, busy ? T.generating : T.generate),
+              }, busy ? T.generating : (estimate === '' ? T.generate : `${T.generate} · ${estimate}`)),
               h('button', {
                 type: 'button',
                 className: 'hs-button',

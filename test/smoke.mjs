@@ -18,6 +18,7 @@ import { apply } from '../index.js'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const outputDir = path.join(here, 'output')
 const live = process.argv.includes('--live')
+const liveVideo = process.argv.includes('--live-video')
 
 async function readKeyFromCredentials() {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY
@@ -121,6 +122,29 @@ console.log('✓ /state', JSON.stringify({
   videoModels: state.payload.models.video.length,
 }))
 
+/* ---------------------------------------------------------------- 价目表 */
+
+let priced
+for (let attempt = 0; attempt < 20; attempt += 1) {
+  const snapshot = await call('/state')
+  priced = snapshot.payload.pricing
+  if (priced?.ok === true && Object.keys(priced.models ?? {}).length > 0) break
+  await new Promise((resolve) => setTimeout(resolve, 1000))
+}
+assert.equal(priced?.ok, true, '应能从 /api/pricing 拉到价目表')
+const firstImage = state.payload.models.image.find((id) => priced.models[id])
+const firstVideo = state.payload.models.video.find((id) => priced.models[id])
+assert.ok(firstImage, '出图模型应有标价')
+assert.ok(firstVideo, '出片模型应有标价')
+assert.ok(priced.models[firstImage].price > 0)
+assert.equal(priced.models[firstVideo].perSecond, true, '视频价格应按秒')
+console.log('✓ 价目表', JSON.stringify({
+  currency: priced.currency,
+  models: Object.keys(priced.models).length,
+  [firstImage]: priced.models[firstImage].price,
+  [firstVideo]: `${priced.models[firstVideo].price}/s`,
+}))
+
 /* ---------------------------------------------------------------- 参数校验 */
 
 const empty = await call('/generate', { method: 'POST', body: { prompt: '   ' } })
@@ -178,14 +202,54 @@ async function runLive() {
   console.log('✓ history.json 已持久化')
 }
 
-if (live) {
+async function runLiveVideo() {
+  assert.equal(state.payload.config.hasKey, true, '真实出片需要 OPENAI_API_KEY')
+
+  const model = process.env.HFSY_VIDEO_MODEL || 'sd-2-fast-480'
+  const created = await call('/generate', {
+    method: 'POST',
+    body: { kind: 'video', model, prompt: 'a paper boat drifting on a puddle, light rain, slow push in', duration: 4, resolution: '480p' },
+  })
+  assert.equal(created.status, 200, JSON.stringify(created.payload))
+  assert.equal(created.payload.ok, true)
+  const jobId = created.payload.job.id
+  console.log('✓ 提交视频任务', jobId, model)
+
+  const deadline = Date.now() + 900_000
+  let job
+  for (;;) {
+    const snapshot = await call('/state')
+    job = snapshot.payload.jobs.find((item) => item.id === jobId)
+    if (job && (job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled')) break
+    if (Date.now() > deadline) throw new Error('等待出片超时')
+    process.stdout.write(`\r  ${job?.phase ?? '…'} ${Math.round((job?.elapsedMs ?? 0) / 1000)}s   `)
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+  }
+  process.stdout.write('\n')
+
+  if (job.status !== 'succeeded') throw new Error(`出片失败：${job.error}`)
+
+  const entry = job.results[0]
+  const bytes = await readFile(path.join(outputDir, entry.rel))
+  assert.ok(bytes.byteLength > 50_000, '落盘文件应是一段真视频')
+  assert.match(entry.mediaType, /video\//u)
+  console.log('✓ 视频完成', JSON.stringify({ file: entry.file, bytes: entry.bytes, resolution: entry.resolution, duration: entry.duration, ms: job.elapsedMs }))
+
+  const served = await fetch(`${base}/file?rel=${encodeURIComponent(entry.rel)}`)
+  assert.equal(served.status, 200)
+  assert.match(String(served.headers.get('content-type')), /video\//u)
+  console.log('✓ /file 可回读视频')
+}
+
+if (live || liveVideo) {
   try {
-    await runLive()
+    if (live) await runLive()
+    if (liveVideo) await runLiveVideo()
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }
   console.log('\n全部通过')
 } else {
-  console.log('\n跳过真实生成（加 --live 才调中转）')
+  console.log('\n跳过真实生成（加 --live 出图 / --live-video 出片）')
   await new Promise((resolve) => server.close(resolve))
 }

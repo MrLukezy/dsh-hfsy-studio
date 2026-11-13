@@ -31,11 +31,15 @@ const DEFAULT_IMAGE_MODELS = [
   'gpt-image-2pro-4k',
 ]
 
-/** 默认出片模型：hfsy 中转列出了这些，但当前站点未配价格，调用会返回 model_price_error。 */
+/** 默认出片模型：走 `/video/create` + `/video/query`，这些在中转上既有价也能提交。 */
 const DEFAULT_VIDEO_MODELS = [
-  'Doubao-Seedance-2.0-fast',
-  'Doubao-Seedance-2.0',
-  'Doubao-Seedance-2.5',
+  'sd-2-fast-480',
+  'sd-2-fast-720',
+  'sd-2.5-480',
+  'sd-2.5-720',
+  'wan-3.0-480',
+  'wan-3.0-720',
+  'minimax-h3',
 ]
 
 /** 出图尺寸上限（像素），防止手滑写个 10000x10000。 */
@@ -74,7 +78,9 @@ function normalizeConfig(raw) {
     requestTimeoutMs: clampInt(input.requestTimeoutMs, 15_000, 600_000, 240_000),
     maxRetries: clampInt(input.maxRetries, 0, 4, 2),
     videoPollMs: clampInt(input.videoPollMs, 2_000, 30_000, 5_000),
-    videoTimeoutMs: clampInt(input.videoTimeoutMs, 60_000, 1_800_000, 900_000),
+    videoTimeoutMs: clampInt(input.videoTimeoutMs, 60_000, 3_600_000, 1_800_000),
+    pricingTtlMs: clampInt(input.pricingTtlMs, 60_000, 3_600_000, 600_000),
+    currencySymbol: pickString(input.currencySymbol, '$'),
   }
 }
 
@@ -158,7 +164,7 @@ class ProviderError extends Error {
  * timeout 用独立 AbortController，保证外部取消（job.stop）能立刻打断重试循环。
  */
 async function requestJson(config, key, route, { method = 'POST', body, signal, timeoutMs } = {}) {
-  const url = `${config.baseUrl}${route}`
+  const url = route.startsWith('http') ? route : `${config.baseUrl}${route}`
   const budget = timeoutMs ?? config.requestTimeoutMs
   let attempt = 0
   for (;;) {
@@ -364,6 +370,61 @@ export function apply(ctx, rawConfig) {
     return undefined
   }
 
+  /* ---- 价格 ---- */
+
+  const apiRoot = config.baseUrl.replace(/\/v1$/u, '')
+  let pricing = { at: 0, models: {}, ok: false, error: '', loading: false }
+
+  /** 从中转的 /api/pricing 拉一份模型价目表（New API 站点接口，缓存 10 分钟）。 */
+  async function refreshPricing(force = false) {
+    if (pricing.loading) return pricing
+    if (!force && pricing.at !== 0 && now() - pricing.at < config.pricingTtlMs) return pricing
+    const key = await resolveKey()
+    if (key === undefined) {
+      pricing = { ...pricing, ok: false, error: `没有找到 ${config.apiKeyEnv}` }
+      return pricing
+    }
+    pricing = { ...pricing, loading: true }
+    try {
+      const payload = await requestJson(config, key.value, `${apiRoot}/api/pricing`, { method: 'GET', timeoutMs: 30_000 })
+      const entries = Array.isArray(payload?.data) ? payload.data : []
+      const models = {}
+      for (const item of entries) {
+        const name = String(item?.model_name ?? '').trim()
+        if (name === '') continue
+        models[name] = {
+          price: Number(item.model_price) || 0,
+          perSecond: Boolean(item.price_per_second_display),
+          perCall: Number(item.quota_type) === 1,
+          tag: String(item.tags ?? ''),
+          description: String(item.description ?? '').slice(0, 300),
+          groups: Array.isArray(item.enable_groups) ? item.enable_groups : [],
+        }
+      }
+      pricing = { at: now(), models, ok: true, error: '', loading: false }
+    } catch (error) {
+      pricing = { ...pricing, loading: false, ok: false, error: error?.message ?? String(error) }
+      logger.warn?.(`[hfsy-studio] 拉价格失败：${pricing.error}`)
+    }
+    return pricing
+  }
+
+  /** 只把工作台用得上的模型价格发给页面：当前池子 + 其他图片/视频模型。 */
+  function pricingView() {
+    const pools = new Set([...config.imageModels, ...config.videoModels])
+    const models = {}
+    for (const [name, item] of Object.entries(pricing.models)) {
+      if (pools.has(name) || item.tag === '图片' || item.tag === '视频') models[name] = item
+    }
+    return {
+      ok: pricing.ok,
+      error: pricing.error,
+      updatedAt: pricing.at,
+      currency: config.currencySymbol,
+      models,
+    }
+  }
+
   /* ---- 任务 ---- */
 
   function serializeJob(job) {
@@ -527,44 +588,56 @@ export function apply(ctx, rawConfig) {
 
   /* ---- 出片 ---- */
 
+  /** 中转的错误经常是 HTTP 200 + {success:false,message}，这里统一翻成异常。 */
+  function assertPayload(payload, fallback) {
+    if (payload && payload.success === false) throw new Error(payload.message || fallback)
+    if (payload && typeof payload.message === 'string' && payload.code !== undefined) throw new Error(payload.message)
+    return payload
+  }
+
   async function runVideo(job) {
     const key = await resolveKey()
     if (key === undefined) throw new Error(`没有找到 ${config.apiKeyEnv}，先在 DSH 凭据里配一个再生成`)
 
-    const body = { model: job.model, prompt: job.prompt }
-    if (job.duration) body.duration = clampInt(job.duration, 3, 20, 5)
-    if (job.resolution) body.size = job.resolution
+    const body = {
+      model: job.model,
+      prompt: job.prompt,
+      resolution: job.resolution,
+      duration: clampInt(job.duration, 1, 30, 5),
+    }
 
     job.phase = '提交视频任务'
-    const created = await requestJson(config, key.value, '/video/generations', {
+    const created = assertPayload(await requestJson(config, key.value, '/video/create', {
       body,
       signal: job.controller.signal,
       timeoutMs: 120_000,
-    })
+    }), '视频任务提交失败')
 
-    let videoUrl = findVideoUrl(created)
     const taskId = created?.id ?? created?.task_id ?? created?.data?.id
-    if (videoUrl === undefined && taskId !== undefined) {
-      const deadline = now() + config.videoTimeoutMs
-      while (now() < deadline) {
-        if (job.controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
-        job.phase = '等待视频渲染'
-        await sleep(config.videoPollMs)
-        const status = await requestJson(config, key.value, `/video/generations/${taskId}`, {
-          method: 'GET',
-          signal: job.controller.signal,
-          timeoutMs: 60_000,
-        })
-        const state = String(status?.status ?? status?.data?.status ?? '').toLowerCase()
-        videoUrl = findVideoUrl(status)
-        if (videoUrl !== undefined) break
-        if (['failed', 'error', 'cancelled', 'canceled'].includes(state)) {
-          throw new Error(providerMessage(JSON.stringify(status)) || '视频任务失败')
-        }
+    if (taskId === undefined) throw new Error(providerMessage(JSON.stringify(created)) || '中转没有返回视频任务 id')
+
+    const deadline = now() + config.videoTimeoutMs
+    let videoUrl
+    let lastStatus = 'queued'
+    while (now() < deadline) {
+      if (job.controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
+      await sleep(config.videoPollMs)
+      const payload = assertPayload(await requestJson(config, key.value, `/video/query?id=${encodeURIComponent(taskId)}`, {
+        method: 'GET',
+        signal: job.controller.signal,
+        timeoutMs: 60_000,
+      }), '查询视频任务失败')
+
+      lastStatus = String(payload?.data?.status ?? payload?.data?.detail?.status ?? payload?.status ?? '').toLowerCase()
+      videoUrl = findVideoUrl(payload)
+      if (videoUrl !== undefined) break
+      if (['failed', 'error', 'cancelled', 'canceled'].includes(lastStatus)) {
+        throw new Error(findFailure(payload) || `视频任务失败（${lastStatus}）`)
       }
+      job.phase = lastStatus === 'queued' ? '中转排队中' : '视频渲染中'
     }
 
-    if (videoUrl === undefined) throw new Error('中转没有返回可下载的视频（可能未开通该模型）')
+    if (videoUrl === undefined) throw new Error(`视频任务超时（最后状态 ${lastStatus || '未知'}），任务 id ${taskId}`)
 
     job.phase = '下载视频'
     const buffer = await downloadBinary(videoUrl, job.controller.signal, 512 * 1024 * 1024)
@@ -594,6 +667,17 @@ export function apply(ctx, rawConfig) {
     job.phase = '视频已落盘'
   }
 
+  /** 在任意的失败响应里找第一句人话（error / message / fail_reason …）。 */
+  function findFailure(value, depth = 0) {
+    if (depth > 5 || value === null || typeof value !== 'object') return ''
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item === 'string' && /error|message|reason|msg/iu.test(key) && item.trim() !== '') return item.trim()
+      const nested = findFailure(item, depth + 1)
+      if (nested !== '') return nested
+    }
+    return ''
+  }
+
   /** 在任意的响应结构里找第一个像视频地址的字符串。 */
   function findVideoUrl(value, depth = 0) {
     if (depth > 6 || value === null || typeof value !== 'object') {
@@ -621,6 +705,8 @@ export function apply(ctx, rawConfig) {
   async function handleState(res) {
     await loadHistory()
     const key = await resolveKey()
+    if (pricing.at === 0) await refreshPricing(true)
+    else if (now() - pricing.at > config.pricingTtlMs) void refreshPricing(false)
     const running = [...jobs.values()].filter((job) => job.status === 'running' || job.status === 'queued')
     sendJson(res, 200, {
       ok: true,
@@ -633,6 +719,7 @@ export function apply(ctx, rawConfig) {
         maxConcurrent: config.maxConcurrent,
       },
       models: { image: config.imageModels, video: config.videoModels },
+      pricing: pricingView(),
       jobs: [...jobs.values()].map(serializeJob).sort((a, b) => b.startedAt - a.startedAt).slice(0, 30),
       history: history.slice(0, 200),
       running: running.length,
@@ -673,8 +760,8 @@ export function apply(ctx, rawConfig) {
       quality: typeof body.quality === 'string' ? body.quality : 'auto',
       count: kind === 'image' ? clampInt(body.count, 1, 4, 1) : 1,
       format: ['png', 'jpeg', 'webp'].includes(body.format) ? body.format : 'png',
-      duration: clampInt(body.duration, 3, 20, 5),
-      resolution: typeof body.resolution === 'string' ? body.resolution : '720p',
+      duration: clampInt(body.duration, 1, 30, 5),
+      resolution: ['480p', '720p', '1080p'].includes(body.resolution) ? body.resolution : '720p',
     })
     sendJson(res, 200, { ok: true, job: serializeJob(job) })
   }
@@ -779,6 +866,11 @@ export function apply(ctx, rawConfig) {
         await handleModels(res)
         return
       }
+      if (segments.length === 2 && segments[0] === 'pricing' && segments[1] === 'refresh' && method === 'POST') {
+        const snapshot = await refreshPricing(true)
+        sendJson(res, 200, { ok: snapshot.ok, error: snapshot.error, pricing: pricingView() })
+        return
+      }
       if (segments.length === 1 && segments[0] === 'file') {
         await handleFile(url, res)
         return
@@ -823,5 +915,6 @@ export function apply(ctx, rawConfig) {
   }, 'hfsy-studio: abort jobs on unload')
 
   void loadHistory()
+  void refreshPricing(true)
   logger.info?.(`[hfsy-studio] 生图工作台已加载：${config.baseUrl} → ${config.outputDir}`)
 }
