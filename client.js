@@ -37,11 +37,13 @@ window.__ModuleLoader__.load({
         navFavorites: '收藏',
         navCharacters: '角色',
         navTools: '工具',
+        navSettings: '设置',
         navCreateHint: '写提示词，出图或出片',
         navGalleryHint: '按类型翻看历史成品',
         navFavoritesHint: '收藏夹与精选图',
         navCharactersHint: '固定形象，跨次复用',
         navToolsHint: '4K 增强',
+        navSettingsHint: '调用开关 · 模型队列 · 分辨率',
         modeText: '文生图',
         modeRef: '参考图',
         modeVideo: '视频',
@@ -133,7 +135,7 @@ window.__ModuleLoader__.load({
         runTool: '生成 4K',
         pickTitle: '从历史 / 收藏里挑图',
         selected: '已选',
-        filters: { all: '全部', image: '图片', video: '视频', upscale: '4K' },
+        filters: { all: '全部', image: '图片', video: '视频', upscale: '4K', tool: '调用' },
         overview: '概览',
         statsItems: '成品',
         statsFav: '收藏',
@@ -144,6 +146,33 @@ window.__ModuleLoader__.load({
         toolOpen: '选择源图',
         applyRef: '用作参考',
         upscaleThis: '4K 增强',
+        settingsTitle: '设置',
+        callCard: '模型调用',
+        autoTool: '自动注册为生图 / 生视频工具',
+        autoToolHint: '开启后，DSH 里模型需要出图出片时会直接调用本插件（走下面这条队列），不再去别处找。',
+        recordToolCalls: '把模型调用也记进历史',
+        recordToolCallsHint: '关闭后，模型自动生成的图仍然落盘，但不会出现在画廊与历史记录里。',
+        toolNames: '已注册工具',
+        toolUnavailable: '宿主还没加载 tools 服务',
+        noTools: '当前没有注册任何工具',
+        queueCard: '模型队列',
+        queueHint: '从上到下依次尝试：前一个模型失败（且没出结果）就自动换下一个。',
+        imageQueue: '图片队列',
+        videoQueue: '视频队列',
+        addModel: '添加模型',
+        resolutionCard: '分辨率预设',
+        resolutionHint: '模型调用时按名字挑分辨率；模型留空表示跟随队列第一个。',
+        presetLabel: '名字',
+        presetSize: '尺寸',
+        presetModel: '模型',
+        followQueue: '跟随队列',
+        addPreset: '添加分辨率',
+        save: '保存设置',
+        saved: '设置已保存',
+        unsaved: '有未保存的改动',
+        modelPrice: '单价',
+        up: '上移',
+        down: '下移',
       }
       : {
         title: 'Image Studio',
@@ -153,11 +182,13 @@ window.__ModuleLoader__.load({
         navFavorites: 'Favorites',
         navCharacters: 'Characters',
         navTools: 'Tools',
+        navSettings: 'Settings',
         navCreateHint: 'Prompt in, pictures out',
         navGalleryHint: 'Browse everything you made',
         navFavoritesHint: 'Folders of keepers',
         navCharactersHint: 'Reusable looks',
         navToolsHint: '4K upscale',
+        navSettingsHint: 'Call routing · queues · resolutions',
         modeText: 'Text to image',
         modeRef: 'With references',
         modeVideo: 'Video',
@@ -249,7 +280,7 @@ window.__ModuleLoader__.load({
         runTool: 'Make 4K',
         pickTitle: 'Pick from history / favorites',
         selected: 'selected',
-        filters: { all: 'All', image: 'Images', video: 'Video', upscale: '4K' },
+        filters: { all: 'All', image: 'Images', video: 'Video', upscale: '4K', tool: 'Tool calls' },
         overview: 'Overview',
         statsItems: 'works',
         statsFav: 'favorites',
@@ -260,6 +291,33 @@ window.__ModuleLoader__.load({
         toolOpen: 'Choose a source',
         applyRef: 'Use as reference',
         upscaleThis: 'Upscale 4K',
+        settingsTitle: 'Settings',
+        callCard: 'Model calls',
+        autoTool: 'Register image / video tools automatically',
+        autoToolHint: 'When on, the model in DSH calls this plugin whenever it needs a picture or a clip — following the queue below.',
+        recordToolCalls: 'Record model calls in history',
+        recordToolCallsHint: 'When off, tool-generated files still land on disk but stay out of the gallery and history.',
+        toolNames: 'Registered tools',
+        toolUnavailable: 'Host has not loaded the tools service yet',
+        noTools: 'No tools registered',
+        queueCard: 'Model queue',
+        queueHint: 'Tried top to bottom: if a model fails before producing anything, the next one takes over.',
+        imageQueue: 'Image queue',
+        videoQueue: 'Video queue',
+        addModel: 'Add model',
+        resolutionCard: 'Resolution presets',
+        resolutionHint: 'Tool calls pick a resolution by name; an empty model follows the queue head.',
+        presetLabel: 'Name',
+        presetSize: 'Size',
+        presetModel: 'Model',
+        followQueue: 'Follow queue',
+        addPreset: 'Add resolution',
+        save: 'Save settings',
+        saved: 'Settings saved',
+        unsaved: 'Unsaved changes',
+        modelPrice: 'Price',
+        up: 'Move up',
+        down: 'Move down',
       }
 
     /** 常用尺寸：gpt-image 系只吃这几档，别的走自定义。 */
@@ -414,6 +472,27 @@ window.__ModuleLoader__.load({
       '.hs-charcard-acts{display:flex;gap:8px}',
       '.hs-charcard-acts .hs-button{height:34px;font-size:12px}',
 
+      /* 设置页 */
+      '.hs-setting{display:flex;align-items:flex-start;gap:14px;padding:16px;border-radius:16px;background:var(--dsw-alias-bg-layer-2,#191919)}',
+      '.hs-setting .hs-setting-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}',
+      '.hs-setting b{font-size:13px;font-weight:500}',
+      '.hs-setting span{font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-tertiary,#8a8f95)}',
+      '.hs-switch{flex:0 0 auto;width:44px;height:26px;padding:2px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.3));border-radius:999px;background:var(--dsw-alias-bg-base,#101012);cursor:pointer;transition:background .15s ease}',
+      '.hs-switch i{display:block;width:20px;height:20px;border-radius:50%;background:var(--dsw-alias-label-tertiary,#8a8f95);transition:transform .15s ease,background .15s ease}',
+      '.hs-switch[data-on="true"]{background:var(--dsw-alias-brand-primary,#4d6bfe);border-color:transparent}',
+      '.hs-switch[data-on="true"] i{transform:translateX(18px);background:#fff}',
+      '.hs-qrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.2));border-radius:12px;background:var(--dsw-alias-bg-base,#101012)}',
+      '.hs-qrow .hs-qidx{width:18px;text-align:center;font-size:11px;color:var(--dsw-alias-label-tertiary,#8a8f95);font-variant-numeric:tabular-nums}',
+      '.hs-qrow .hs-qname{flex:1;min-width:0;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.hs-qrow .hs-qprice{font-size:11px;color:var(--dsw-alias-brand-primary,#6c8bff);font-variant-numeric:tabular-nums}',
+      '.hs-iconbtn{width:26px;height:26px;border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.24));border-radius:8px;background:transparent;color:var(--dsw-alias-label-secondary,#b6b9bd);font:inherit;font-size:12px;cursor:pointer;padding:0}',
+      '.hs-iconbtn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.16))}',
+      '.hs-iconbtn:disabled{opacity:.35;cursor:not-allowed}',
+      '.hs-preset{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.2fr) 26px;gap:10px;align-items:center}',
+      '.hs-preset .hs-control{height:34px;font-size:12px;border-radius:10px}',
+      '.hs-subhead{display:flex;align-items:center;gap:8px;margin-top:4px;font-size:11.5px;color:var(--dsw-alias-label-tertiary,#8a8f95)}',
+      '.hs-subhead .hs-grow{margin-left:auto}',
+
       /* 弹层 */
       '.hs-modal-mask{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:40px;background:rgba(0,0,0,.62)}',
       '.hs-modal{width:min(860px,94vw);max-height:86vh;overflow:auto;display:flex;flex-direction:column;gap:16px;padding:22px;border-radius:22px;background:var(--dsw-alias-bg-base,#111);border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.26));box-shadow:0 30px 80px rgba(0,0,0,.5)}',
@@ -514,6 +593,9 @@ window.__ModuleLoader__.load({
         characters: h('g', { stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' },
           h('circle', { cx: 12, cy: 8.4, r: 3.4 }),
           h('path', { d: 'M4.8 20c.9-3.4 3.6-5.2 7.2-5.2s6.3 1.8 7.2 5.2' })),
+        settings: h('g', { stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' },
+          h('circle', { cx: 12, cy: 12, r: 3.1 }),
+          h('path', { d: 'M12 3.4v2.2M12 18.4v2.2M20.6 12h-2.2M5.6 12H3.4M17.9 6.1l-1.6 1.6M7.7 16.3l-1.6 1.6M17.9 17.9l-1.6-1.6M7.7 7.7L6.1 6.1' })),
         tools: h('g', { stroke: 'currentColor', strokeWidth: 1.6, strokeLinejoin: 'round' },
           h('path', { d: 'M14.2 6.4a3.6 3.6 0 0 1 4.9 4.6l-8 8-4.6.9.9-4.6 6.8-8.9Z' }),
           h('path', { d: 'M9.6 14.4l2 2' })),
@@ -613,6 +695,8 @@ window.__ModuleLoader__.load({
       const [picker, setPicker] = useState(null)
       const [charDraft, setCharDraft] = useState(null)
       const [toolSource, setToolSource] = useState(null)
+      const [draft, setDraft] = useState(null)
+      const [saving, setSaving] = useState(false)
       const aliveRef = useRef(true)
 
       const load = useCallback(async (silent) => {
@@ -650,6 +734,12 @@ window.__ModuleLoader__.load({
         const timer = window.setTimeout(() => { void load(true) }, 300)
         return () => { window.clearTimeout(timer) }
       }, [hasRunning, load])
+
+      // 设置页草稿：服务端设置变了（首次拉取 / 保存后）就同步一次
+      useEffect(() => {
+        if (state?.settings === undefined) return
+        setDraft((current) => (current === null ? state.settings : current))
+      }, [state])
 
       // 宿主第一轮拉价目表可能还没回来，这里补几次
       useEffect(() => {
@@ -846,6 +936,21 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const saveSettings = async () => {
+        if (draft === null || saving) return
+        setSaving(true)
+        try {
+          const data = await api('/settings', { method: 'POST', body: draft })
+          setDraft(data.settings)
+          setToast(T.saved)
+          await load(true)
+        } catch (caught) {
+          setError(caught.message)
+        } finally {
+          setSaving(false)
+        }
+      }
+
       const runUpscale = async (source, modelId, targetSize) => {
         try {
           await api('/generate', {
@@ -864,12 +969,46 @@ window.__ModuleLoader__.load({
       const sizeValue = SIZE_PRESETS.some((item) => item.value === size) ? size : ''
       const favCount = allFavorites.length
       const stats = state?.stats ?? { count: 0, bytes: 0 }
+      const dirty = draft !== null && JSON.stringify(draft) !== JSON.stringify(state?.settings ?? null)
+
+      const patchDraft = (fn) => setDraft((current) => (current === null ? current : fn(current)))
+      const moveQueue = (field, index, delta) => patchDraft((current) => {
+        const list = [...current[field]]
+        const target = index + delta
+        if (target < 0 || target >= list.length) return current
+        ;[list[index], list[target]] = [list[target], list[index]]
+        return { ...current, [field]: list }
+      })
+      const addQueue = (field, id) => patchDraft((current) => (
+        current[field].includes(id) ? current : { ...current, [field]: [...current[field], id] }
+      ))
+      const removeQueue = (field, index) => patchDraft((current) => {
+        if (current[field].length <= 1) return current
+        return { ...current, [field]: current[field].filter((_, at) => at !== index) }
+      })
+      const updateResolution = (index, patch) => patchDraft((current) => ({
+        ...current,
+        resolutions: current.resolutions.map((item, at) => (at === index ? { ...item, ...patch } : item)),
+      }))
+      const addResolution = () => patchDraft((current) => ({
+        ...current,
+        resolutions: [...current.resolutions, {
+          id: `preset-${current.resolutions.length + 1}-${Math.random().toString(36).slice(2, 5)}`,
+          label: '新预设',
+          size: '1024x1024',
+          model: '',
+        }],
+      }))
+      const removeResolution = (index) => patchDraft((current) => (
+        current.resolutions.length <= 1 ? current : { ...current, resolutions: current.resolutions.filter((_, at) => at !== index) }
+      ))
 
       /* ---- 视图数据 ---- */
       const galleryItems = history.filter((entry) => {
         if (galleryFilter === 'image') return entry.kind === 'image' && entry.tool !== 'upscale'
         if (galleryFilter === 'video') return entry.kind === 'video'
         if (galleryFilter === 'upscale') return entry.tool === 'upscale'
+        if (galleryFilter === 'tool') return entry.source === 'tool'
         return true
       })
       const latest = history.filter((entry) => entry.kind === 'image').slice(0, 6)
@@ -881,6 +1020,7 @@ window.__ModuleLoader__.load({
         favorites: { title: T.navFavorites, hint: T.navFavoritesHint },
         characters: { title: T.navCharacters, hint: T.navCharactersHint },
         tools: { title: T.navTools, hint: T.navToolsHint },
+        settings: { title: T.navSettings, hint: T.navSettingsHint },
       }[view]
 
       /* ---- 子视图 ---- */
@@ -1071,7 +1211,7 @@ window.__ModuleLoader__.load({
           h('span', { className: 'hs-muted' }, `${galleryItems.length} / ${stats.count}`),
           h('span', { className: 'hs-grow' }),
           h('div', { className: 'hs-tabs ghost' },
-            ['all', 'image', 'video', 'upscale'].map((key) => h('button', {
+            ['all', 'image', 'video', 'upscale', 'tool'].map((key) => h('button', {
               key,
               type: 'button',
               className: 'hs-tab',
@@ -1181,12 +1321,146 @@ window.__ModuleLoader__.load({
               onClick: () => setPicker('upscale'),
             }, T.toolOpen))))
 
+      const queueEditor = (field, models) => {
+        const list = draft === null ? [] : draft[field]
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+          h('div', { className: 'hs-subhead' },
+            h('span', null, field === 'imageQueue' ? T.imageQueue : T.videoQueue),
+            h('span', { className: 'hs-grow' }),
+            h('span', null, `${list.length}`)),
+          list.map((id, index) => {
+            const price = priceOf(id)
+            return h('div', { key: id, className: 'hs-qrow' },
+              h('span', { className: 'hs-qidx' }, `${index + 1}`),
+              h('span', { className: 'hs-qname' }, id),
+              h('span', { className: 'hs-qprice' }, price === undefined ? '' : `${money(price.price)}${price.perSecond ? T.perSecond : T.perImage}`),
+              h('button', {
+                type: 'button',
+                className: 'hs-iconbtn',
+                title: T.up,
+                disabled: index === 0,
+                onClick: () => moveQueue(field, index, -1),
+              }, '\u2191'),
+              h('button', {
+                type: 'button',
+                className: 'hs-iconbtn',
+                title: T.down,
+                disabled: index === list.length - 1,
+                onClick: () => moveQueue(field, index, 1),
+              }, '\u2193'),
+              h('button', {
+                type: 'button',
+                className: 'hs-iconbtn',
+                title: T.remove,
+                disabled: list.length <= 1,
+                onClick: () => removeQueue(field, index),
+              }, '\u00d7'))
+          }),
+          h('select', {
+            className: 'hs-control',
+            style: { width: '220px', height: '34px', borderRadius: '10px', fontSize: '12px' },
+            value: '',
+            onChange: (event) => {
+              if (event.target.value !== '') addQueue(field, event.target.value)
+              event.target.value = ''
+            },
+          },
+          h('option', { value: '' }, `+ ${T.addModel}`),
+          models.filter((id) => !list.includes(id)).map((id) => h('option', { key: id, value: id }, id))))
+      }
+
+      const resolutionEditor = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } },
+        h('div', { className: 'hs-preset' },
+          h('span', { className: 'hs-subhead', style: { margin: 0 } }, T.presetLabel),
+          h('span', { className: 'hs-subhead', style: { margin: 0 } }, T.presetSize),
+          h('span', { className: 'hs-subhead', style: { margin: 0 } }, T.presetModel),
+          h('span')),
+        (draft === null ? [] : draft.resolutions).map((item, index) => h('div', { key: item.id, className: 'hs-preset' },
+          h('input', {
+            className: 'hs-control',
+            value: item.label,
+            maxLength: 24,
+            onChange: (event) => updateResolution(index, { label: event.target.value }),
+          }),
+          h('input', {
+            className: 'hs-control',
+            value: item.size,
+            onChange: (event) => updateResolution(index, { size: event.target.value }),
+            placeholder: '1024x1024',
+          }),
+          h('select', {
+            className: 'hs-control',
+            value: item.model,
+            onChange: (event) => updateResolution(index, { model: event.target.value }),
+          },
+          h('option', { value: '' }, T.followQueue),
+          (state?.models?.image ?? []).map((id) => h('option', { key: id, value: id }, id))),
+          h('button', {
+            type: 'button',
+            className: 'hs-iconbtn',
+            title: T.remove,
+            disabled: (draft === null ? [] : draft.resolutions).length <= 1,
+            onClick: () => removeResolution(index),
+          }, '\u00d7'))),
+        h('button', { type: 'button', className: 'hs-pill', style: { alignSelf: 'flex-start' }, onClick: addResolution }, `+ ${T.addPreset}`))
+
+      const settingToggle = (key, title, hint) => h('div', { className: 'hs-setting' },
+        h('div', { className: 'hs-setting-body' }, h('b', null, title), h('span', null, hint)),
+        h('button', {
+          type: 'button',
+          className: 'hs-switch',
+          'data-on': String(Boolean(draft === null ? false : draft[key])),
+          role: 'switch',
+          'aria-checked': String(Boolean(draft === null ? false : draft[key])),
+          onClick: () => patchDraft((current) => ({ ...current, [key]: !current[key] })),
+        }, h('i')))
+
+      const settingsView = h('section', { className: 'hs-card', style: { maxWidth: '900px' } },
+        h('div', { className: 'hs-card-head' },
+          h('h2', null, T.settingsTitle),
+          h('span', { className: 'hs-muted' }, T.callCard),
+          h('span', { className: 'hs-grow' }),
+          dirty ? h('span', { className: 'hs-muted' }, T.unsaved) : null,
+          h('button', {
+            type: 'button',
+            className: 'hs-button primary',
+            style: { flex: '0 0 auto', height: '34px', padding: '0 18px' },
+            disabled: !dirty || saving,
+            onClick: () => void saveSettings(),
+          }, saving ? T.loading : T.save)),
+
+        settingToggle('autoTool', T.autoTool, T.autoToolHint),
+        settingToggle('recordToolCalls', T.recordToolCalls, T.recordToolCallsHint),
+
+        h('div', { className: 'hs-field' },
+          h('span', { className: 'hs-label' },
+            h('span', null, T.toolNames),
+            h('span', { className: 'hs-price' }, state?.tools?.available === false ? T.toolUnavailable : '')),
+          h('div', { className: 'hs-chips' },
+            (state?.tools?.names ?? []).length === 0
+              ? h('span', { className: 'hs-muted' }, T.noTools)
+              : state.tools.names.map((name) => h('span', { key: name, className: 'hs-pill', style: { cursor: 'default' } }, name)))),
+
+        h('div', { style: { height: '1px', background: 'var(--dsw-alias-border-l2,rgba(127,127,127,.16))' } }),
+        h('div', { className: 'hs-card-head' },
+          h('h2', null, T.queueCard),
+          h('span', { className: 'hs-muted' }, T.queueHint)),
+        queueEditor('imageQueue', state?.models?.image ?? []),
+        queueEditor('videoQueue', state?.models?.video ?? []),
+
+        h('div', { style: { height: '1px', background: 'var(--dsw-alias-border-l2,rgba(127,127,127,.16))' } }),
+        h('div', { className: 'hs-card-head' },
+          h('h2', null, T.resolutionCard),
+          h('span', { className: 'hs-muted' }, T.resolutionHint)),
+        resolutionEditor)
+
       const viewBody = view === 'create'
         ? h('div', { className: 'hs-split' }, formCard, jobsColumn)
         : view === 'gallery' ? galleryView
           : view === 'favorites' ? favoritesView
             : view === 'characters' ? charactersView
-              : toolsView
+              : view === 'settings' ? settingsView
+                : toolsView
 
       const navItems = [
         { key: 'create', label: T.navCreate, icon: 'create', badge: hasRunning ? `${runningJobs.length}` : '' },
@@ -1194,6 +1468,7 @@ window.__ModuleLoader__.load({
         { key: 'favorites', label: T.navFavorites, icon: 'favorites', badge: `${favCount}` },
         { key: 'characters', label: T.navCharacters, icon: 'characters', badge: `${characters.length}` },
         { key: 'tools', label: T.navTools, icon: 'tools' },
+        { key: 'settings', label: T.navSettings, icon: 'settings' },
       ]
 
       return h('div', { className: 'hs-root' },

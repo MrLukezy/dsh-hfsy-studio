@@ -171,6 +171,41 @@ assert.equal(noSource.status, 400)
 assert.match(noSource.payload.error, /源图/u)
 console.log('✓ 收藏 / 角色 / 4K 参数校验')
 
+/* ---------------------------------------------------------------- 设置：开关 / 队列 / 分辨率 */
+
+const settings = await call('/settings')
+assert.equal(settings.status, 200)
+assert.equal(typeof settings.payload.settings.autoTool, 'boolean')
+assert.ok(settings.payload.settings.imageQueue.length > 0)
+assert.ok(settings.payload.settings.resolutions.length > 0)
+assert.ok(Array.isArray(settings.payload.tools.names))
+
+const badQueue = await call('/settings', { method: 'POST', body: { imageQueue: ['nope'] } })
+assert.equal(badQueue.status, 400)
+assert.match(badQueue.payload.error, /不在允许列表/u)
+
+const badResolution = await call('/settings', { method: 'POST', body: { resolutions: [{ label: 'x', size: '99999x1' }] } })
+assert.equal(badResolution.status, 400)
+
+const badSize = await call('/settings', { method: 'POST', body: { resolutions: [{ label: 'ok', size: 'big' }] } })
+assert.equal(badSize.status, 400)
+
+const reorder = await call('/settings', {
+  method: 'POST',
+  body: { imageQueue: [state.payload.models.image[1], state.payload.models.image[0]] },
+})
+assert.equal(reorder.status, 200)
+assert.equal(reorder.payload.settings.imageQueue[0], state.payload.models.image[1])
+
+const preset = await call('/settings', {
+  method: 'POST',
+  body: { resolutions: [{ id: 'hd', label: '16:9 · 2048', size: '2048x1152', model: '' }, { label: '4K', size: '3840x2160', model: 'gpt-image-2pro-4k' }] },
+})
+assert.equal(preset.status, 200)
+assert.equal(preset.payload.settings.resolutions.length, 2)
+assert.equal(preset.payload.settings.resolutions[1].label, '4K')
+console.log('✓ 设置接口（开关 / 队列顺序 / 分辨率预设校验）')
+
 async function runLive() {
   /* -------------------------------------------------------------- 真实生成 */
 

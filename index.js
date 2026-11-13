@@ -45,6 +45,21 @@ const DEFAULT_VIDEO_MODELS = [
 /** 出图尺寸上限（像素），防止手滑写个 10000x10000。 */
 const MAX_IMAGE_EDGE = 4096
 
+/** 默认分辨率预设：模型留空表示跟随队列第一个。 */
+const DEFAULT_RESOLUTIONS = [
+  { id: 'square', label: '1:1 · 1024', size: '1024x1024', model: '' },
+  { id: 'landscape', label: '3:2 · 1536x1024', size: '1536x1024', model: '' },
+  { id: 'portrait', label: '2:3 · 1024x1536', size: '1024x1536', model: '' },
+  { id: 'wide', label: '16:9 · 2048x1152', size: '2048x1152', model: '' },
+  { id: 'uhd', label: '4K · 3840x2160', size: '3840x2160', model: 'gpt-image-2pro-4k' },
+]
+
+/** 工具名：优先用最直白的名字，被别的插件占了就退到带前缀的。 */
+const TOOL_NAME_CANDIDATES = {
+  image: ['generate_image', 'hfsy_generate_image', 'hfsy_image'],
+  video: ['generate_video', 'hfsy_generate_video', 'hfsy_video'],
+}
+
 /* ------------------------------------------------------------------ 配置 */
 
 function clampInt(value, min, max, fallback) {
@@ -427,6 +442,116 @@ export function apply(ctx, rawConfig) {
     await writeFile(charactersFile, `${JSON.stringify(characters, null, 2)}\n`)
   }
 
+  /* ---- 设置（调用开关 / 模型队列 / 分辨率预设） ---- */
+
+  const settingsFile = path.join(config.outputDir, 'settings.json')
+  const clone = (value) => JSON.parse(JSON.stringify(value))
+
+  let settings = {
+    autoTool: true,
+    recordToolCalls: true,
+    imageQueue: [...config.imageModels],
+    videoQueue: [...config.videoModels],
+    resolutions: clone(DEFAULT_RESOLUTIONS),
+  }
+  let settingsLoaded = false
+
+  async function loadSettings() {
+    if (settingsLoaded) return settings
+    settingsLoaded = true
+    try {
+      const raw = JSON.parse(await readFile(settingsFile, 'utf8'))
+      const patched = normalizeSettings(raw)
+      if (patched.error === '') settings = patched.value
+      else logger.warn?.(`[hfsy-studio] settings.json 有问题，用默认值：${patched.error}`)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') logger.warn?.(`[hfsy-studio] 读取设置失败：${error?.message ?? error}`)
+    }
+    return settings
+  }
+
+  async function persistSettings() {
+    writeChain = writeChain.then(async () => {
+      try {
+        await mkdir(config.outputDir, { recursive: true })
+        const file = `${settingsFile}.tmp`
+        await writeFile(file, JSON.stringify(settings, null, 2), 'utf8')
+        await rename(file, settingsFile)
+      } catch (error) {
+        logger.warn?.(`[hfsy-studio] 写设置失败：${error?.message ?? error}`)
+      }
+    })
+    return writeChain
+  }
+
+  /** 把前端的补丁校验成一份完整设置；不合法就返回 error，不落盘。 */
+  function normalizeSettings(raw) {
+    const input = raw && typeof raw === 'object' ? raw : {}
+    const value = clone(settings)
+
+    if (input.autoTool !== undefined) {
+      if (typeof input.autoTool !== 'boolean') return { error: 'autoTool 必须是布尔值' }
+      value.autoTool = input.autoTool
+    }
+    if (input.recordToolCalls !== undefined) {
+      if (typeof input.recordToolCalls !== 'boolean') return { error: 'recordToolCalls 必须是布尔值' }
+      value.recordToolCalls = input.recordToolCalls
+    }
+
+    for (const [field, allowed] of [['imageQueue', config.imageModels], ['videoQueue', config.videoModels]]) {
+      if (input[field] === undefined) continue
+      if (!Array.isArray(input[field]) || input[field].length === 0) return { error: `${field} 至少要留一个模型` }
+      if (input[field].length > 12) return { error: `${field} 最多 12 个模型` }
+      const list = []
+      for (const item of input[field]) {
+        if (typeof item !== 'string' || !allowed.includes(item.trim())) {
+          return { error: `${field} 里有不在允许列表的模型：${String(item)}` }
+        }
+        if (!list.includes(item.trim())) list.push(item.trim())
+      }
+      value[field] = list
+    }
+
+    if (input.resolutions !== undefined) {
+      if (!Array.isArray(input.resolutions) || input.resolutions.length === 0) return { error: '分辨率预设至少要留一条' }
+      if (input.resolutions.length > 12) return { error: '分辨率预设最多 12 条' }
+      const list = []
+      for (const [index, item] of input.resolutions.entries()) {
+        if (item === null || typeof item !== 'object') return { error: `第 ${index + 1} 条分辨率不是对象` }
+        const label = typeof item.label === 'string' ? item.label.trim() : ''
+        if (label === '' || label.length > 24) return { error: `第 ${index + 1} 条分辨率的名字要在 1~24 字之间` }
+        const size = typeof item.size === 'string' ? item.size.trim().toLowerCase() : ''
+        if (size !== 'auto' && normalizeSize(size) === undefined) {
+          return { error: `第 ${index + 1} 条分辨率的尺寸要写成 WxH（如 1024x1024）或 auto` }
+        }
+        const model = typeof item.model === 'string' ? item.model.trim() : ''
+        if (model !== '' && !config.imageModels.includes(model)) {
+          return { error: `第 ${index + 1} 条分辨率的模型不在 imageModels 里：${model}` }
+        }
+        const id = typeof item.id === 'string' && /^[a-z0-9-]{1,24}$/u.test(item.id.trim())
+          ? item.id.trim()
+          : `preset-${index + 1}`
+        if (list.some((entry) => entry.id === id)) return { error: `分辨率 id 重复：${id}` }
+        list.push({ id, label, size: size === 'auto' ? 'auto' : size, model })
+      }
+      value.resolutions = list
+    }
+
+    return { value }
+  }
+
+  /** 按名字或尺寸找预设；也接受直接写 WxH。 */
+  function resolveResolution(input) {
+    const needle = typeof input === 'string' ? input.trim() : ''
+    if (needle !== '') {
+      const hit = settings.resolutions.find((item) => item.id === needle || item.label === needle || item.size === needle)
+      if (hit !== undefined) return hit
+      const size = normalizeSize(needle)
+      if (size !== undefined) return { id: 'custom', label: size, size, model: '' }
+    }
+    return settings.resolutions[0]
+  }
+
   /** outputDir 内的相对路径 → 绝对路径；越界一律拒绝。 */
   function safePath(rel) {
     if (typeof rel !== 'string' || rel.trim() === '') return undefined
@@ -558,6 +683,9 @@ export function apply(ctx, rawConfig) {
       tool: job.tool ?? '',
       refs: job.refs ?? [],
       characters: job.characters ?? [],
+      source: job.source ?? 'ui',
+      queue: job.queue ?? [],
+      attempts: job.attempts ?? [],
       status: job.status,
       phase: job.phase,
       error: job.error ?? '',
@@ -593,6 +721,10 @@ export function apply(ctx, rawConfig) {
       tool: spec.tool ?? '',
       refs: Array.isArray(spec.refs) ? spec.refs : [],
       characters: Array.isArray(spec.characters) ? spec.characters : [],
+      source: spec.source === 'tool' ? 'tool' : 'ui',
+      queue: Array.isArray(spec.queue) ? spec.queue.filter((item) => typeof item === 'string') : [],
+      attempts: [],
+      deferred: spec.deferred,
       status: 'queued',
       phase: '排队中',
       startedAt: now(),
@@ -625,21 +757,46 @@ export function apply(ctx, rawConfig) {
     } finally {
       job.finishedAt = now()
       job.elapsedMs = job.finishedAt - job.startedAt
+      if (job.deferred !== undefined) {
+        if (job.status === 'succeeded') job.deferred.resolve(job)
+        else job.deferred.reject(new Error(job.error || job.phase))
+      }
     }
   }
 
   /* ---- 出图 ---- */
 
+  /** 队列里的模型依次试：前一个失败且还没落盘，就换下一个。 */
   async function runImage(job) {
     const key = await resolveKey()
     if (key === undefined) throw new Error(`没有找到 ${config.apiKeyEnv}，先在 DSH 凭据里配一个再生成`)
+    const queue = job.queue.length > 0 ? job.queue : [job.model]
+    let lastError
+    for (const [index, model] of queue.entries()) {
+      if (job.controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
+      if (index > 0) job.phase = `换用 ${model} 重试`
+      try {
+        await runImageOnce(job, key, model)
+        return
+      } catch (error) {
+        if (job.controller.signal.aborted || error?.name === 'AbortError') throw error
+        lastError = error
+        job.attempts.push({ model, error: error?.message ?? String(error) })
+        if (job.results.length > 0) throw error
+        logger.warn?.(`[hfsy-studio] ${model} 失败，试队列下一个：${error?.message ?? error}`)
+      }
+    }
+    throw lastError ?? new Error('模型队列里没有可用模型')
+  }
 
+  async function runImageOnce(job, key, model) {
+    job.model = model
     const total = clampInt(job.count, 1, 4, 1)
     const refs = Array.isArray(job.refs) && job.refs.length > 0
       ? await resolveRefs(job.refs.slice(0, config.maxRefs))
       : []
     const size = normalizeSize(job.size)
-    const body = { model: job.model, prompt: job.prompt, n: total }
+    const body = { model, prompt: job.prompt, n: total }
     if (size !== undefined) body.size = size
     if (job.quality !== 'auto') body.quality = job.quality
     if (job.format === 'jpeg' || job.format === 'webp') body.output_format = job.format
@@ -697,12 +854,13 @@ export function apply(ctx, rawConfig) {
         quality: job.quality,
         tool: job.tool ?? '',
         refs: job.refs ?? [],
+        source: job.source ?? 'ui',
         durationMs: now() - job.startedAt,
         createdAt: now(),
       }
       job.results.push(entry)
       saved += 1
-      await recordHistory(entry)
+      if (job.source !== 'tool' || settings.recordToolCalls) await recordHistory(entry)
       job.phase = `已落盘 ${saved}/${items.length} 张`
     }
 
@@ -734,9 +892,29 @@ export function apply(ctx, rawConfig) {
   async function runVideo(job) {
     const key = await resolveKey()
     if (key === undefined) throw new Error(`没有找到 ${config.apiKeyEnv}，先在 DSH 凭据里配一个再生成`)
+    const queue = job.queue.length > 0 ? job.queue : [job.model]
+    let lastError
+    for (const [index, model] of queue.entries()) {
+      if (job.controller.signal.aborted) throw new DOMException('已取消', 'AbortError')
+      if (index > 0) job.phase = `换用 ${model} 重试`
+      try {
+        await runVideoOnce(job, key, model)
+        return
+      } catch (error) {
+        if (job.controller.signal.aborted || error?.name === 'AbortError') throw error
+        lastError = error
+        job.attempts.push({ model, error: error?.message ?? String(error) })
+        if (job.results.length > 0) throw error
+        logger.warn?.(`[hfsy-studio] ${model} 失败，试队列下一个：${error?.message ?? error}`)
+      }
+    }
+    throw lastError ?? new Error('视频队列里没有可用模型')
+  }
 
+  async function runVideoOnce(job, key, model) {
+    job.model = model
     const body = {
-      model: job.model,
+      model,
       prompt: job.prompt,
       resolution: job.resolution,
       duration: clampInt(job.duration, 1, 30, 5),
@@ -795,11 +973,12 @@ export function apply(ctx, rawConfig) {
       duration: job.duration,
       resolution: job.resolution,
       mediaType: ext === 'webm' ? 'video/webm' : 'video/mp4',
+      source: job.source ?? 'ui',
       durationMs: now() - job.startedAt,
       createdAt: now(),
     }
     job.results.push(entry)
-    await recordHistory(entry)
+    if (job.source !== 'tool' || settings.recordToolCalls) await recordHistory(entry)
     job.phase = '视频已落盘'
   }
 
@@ -836,11 +1015,253 @@ export function apply(ctx, rawConfig) {
     return undefined
   }
 
+  /* ---- 面向模型的工具 ---- */
+
+  const toolState = { service: undefined, disposers: [], names: [], error: '' }
+
+  function toolInfo() {
+    return {
+      auto: settings.autoTool,
+      names: toolState.names,
+      available: toolState.service !== undefined,
+      error: toolState.error,
+    }
+  }
+
+  function disposeTools() {
+    for (const dispose of toolState.disposers) {
+      try {
+        dispose()
+      } catch (error) {
+        logger.warn?.(`[hfsy-studio] 注销工具失败：${error?.message ?? error}`)
+      }
+    }
+    toolState.disposers = []
+    toolState.names = []
+  }
+
+  /** 把任务包装成「创建 → 等它结束」，工具调用走这条路。 */
+  function generateForTool(spec, signal) {
+    if (active.size >= config.maxConcurrent) {
+      throw new Error(`同时最多 ${config.maxConcurrent} 个生成任务，等一个跑完再试`)
+    }
+    let resolve
+    let reject
+    const done = new Promise((ok, fail) => { resolve = ok; reject = fail })
+    const job = createJob({ ...spec, source: 'tool', deferred: { resolve, reject } })
+    if (signal !== undefined) {
+      const abort = () => job.controller.abort(new DOMException('工具调用已取消', 'AbortError'))
+      if (signal.aborted) abort()
+      else signal.addEventListener('abort', abort, { once: true })
+    }
+    return done
+  }
+
+  const absoluteOf = (rel) => path.join(config.outputDir, rel)
+
+  function imageToolSpec(name) {
+    return {
+      name,
+      description: 'Generate an image through the HFSY relay configured in this DeepSeek Harness profile — the preferred, default image-generation path. The file is saved in the studio output folder, recorded in the studio history and shown in the studio gallery. Use it for any request that needs a picture: icons, posters, concept art, UI assets, illustrations.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          prompt: { type: 'string', description: 'Detailed description of the image: subject, composition, style, lighting, palette, what to avoid.' },
+          resolution: { type: 'string', description: 'Studio resolution preset id, label or size (e.g. "square", "4K", "1024x1024"). Defaults to the first preset in settings.' },
+          model: { type: 'string', description: 'Optional model override; when omitted the configured model queue is used and fallbacks apply.' },
+          count: { type: 'integer', description: 'How many images to produce (1-4). Defaults to 1.' },
+          format: { type: 'string', enum: ['png', 'jpeg', 'webp'], description: 'Output file format. Defaults to png.' },
+          references: {
+            type: 'array',
+            description: 'Optional reference images, given as paths relative to the studio output folder (e.g. 2026-11-13/120032-x.png). Up to maxRefs entries; makes the call an image-to-image edit.',
+            items: { type: 'string' },
+          },
+        },
+        required: ['prompt'],
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            files: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  file: { type: 'string' },
+                  path: { type: 'string' },
+                  rel: { type: 'string' },
+                  bytes: { type: 'integer' },
+                  width: { type: 'integer' },
+                  height: { type: 'integer' },
+                  model: { type: 'string' },
+                  size: { type: 'string' },
+                },
+                required: ['file', 'path', 'rel', 'bytes', 'width', 'height', 'model', 'size'],
+              },
+            },
+            ms: { type: 'integer' },
+          },
+          required: ['files', 'ms'],
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `生成完成（${(value.ms / 1000).toFixed(1)}s）：\n${value.files
+            .map((item) => `- ${item.path}（${item.width}×${item.height}，${item.model}，${Math.round(item.bytes / 1024)} KB）`)
+            .join('\n')}`,
+        }],
+      },
+      async execute(args, exec) {
+        await loadSettings()
+        const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+        if (prompt === '') throw new Error('prompt 不能为空')
+        const preset = resolveResolution(args.resolution)
+        const explicit = typeof args.model === 'string' ? args.model.trim() : ''
+        const model = explicit || preset.model || settings.imageQueue[0]
+        if (!config.imageModels.includes(model)) throw new Error(`模型 ${model} 不在 imageModels 里，先在设置里挑一个`)
+        const refs = Array.isArray(args.references)
+          ? args.references.filter((item) => typeof item === 'string' && item.trim() !== '').map((item) => item.trim()).slice(0, config.maxRefs)
+          : []
+        const job = await generateForTool({
+          kind: 'image',
+          model,
+          prompt,
+          size: preset.size === 'auto' ? '1024x1024' : preset.size,
+          quality: 'auto',
+          count: clampInt(args.count, 1, 4, 1),
+          format: ['png', 'jpeg', 'webp'].includes(args.format) ? args.format : 'png',
+          refs,
+          queue: explicit !== '' || preset.model !== '' ? [model] : settings.imageQueue,
+        }, exec.signal)
+        return {
+          files: job.results.map((entry) => ({
+            file: entry.file,
+            path: absoluteOf(entry.rel),
+            rel: entry.rel,
+            bytes: entry.bytes,
+            width: entry.width,
+            height: entry.height,
+            model: entry.model,
+            size: entry.size ?? '',
+          })),
+          ms: Math.round(job.elapsedMs ?? 0),
+        }
+      },
+    }
+  }
+
+  function videoToolSpec(name) {
+    return {
+      name,
+      description: 'Generate a short video through the HFSY relay configured in this DeepSeek Harness profile — the preferred, default video-generation path. Submitting is async: expect 1-3 minutes. The mp4 lands in the studio output folder and appears in the studio gallery.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          prompt: { type: 'string', description: 'What happens in the shot: subject, motion, camera, style.' },
+          model: { type: 'string', description: 'Optional model override; when omitted the configured video queue is used.' },
+          resolution: { type: 'string', enum: ['480p', '720p', '1080p'], description: 'Video resolution. Defaults to 720p.' },
+          duration: { type: 'integer', description: 'Clip length in seconds (1-30). Defaults to 5.' },
+        },
+        required: ['prompt'],
+      },
+      output: {
+        schema: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            file: { type: 'string' },
+            path: { type: 'string' },
+            rel: { type: 'string' },
+            bytes: { type: 'integer' },
+            model: { type: 'string' },
+            resolution: { type: 'string' },
+            seconds: { type: 'integer' },
+            ms: { type: 'integer' },
+          },
+          required: ['file', 'path', 'rel', 'bytes', 'model', 'resolution', 'seconds', 'ms'],
+        },
+        render: (_args, value) => [{
+          type: 'text',
+          text: `视频完成：${value.path}（${value.model} · ${value.resolution} · ${value.seconds}s · ${Math.round(value.bytes / 1024)} KB · ${(value.ms / 1000).toFixed(0)}s）`,
+        }],
+      },
+      async execute(args, exec) {
+        await loadSettings()
+        const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
+        if (prompt === '') throw new Error('prompt 不能为空')
+        const explicit = typeof args.model === 'string' ? args.model.trim() : ''
+        const model = explicit || settings.videoQueue[0]
+        if (!config.videoModels.includes(model)) throw new Error(`模型 ${model} 不在 videoModels 里，先在设置里挑一个`)
+        const job = await generateForTool({
+          kind: 'video',
+          model,
+          prompt,
+          duration: clampInt(args.duration, 1, 30, 5),
+          resolution: ['480p', '720p', '1080p'].includes(args.resolution) ? args.resolution : '720p',
+          queue: explicit !== '' ? [model] : settings.videoQueue,
+        }, exec.signal)
+        const entry = job.results[0]
+        if (entry === undefined) throw new Error('没有产出视频文件')
+        return {
+          file: entry.file,
+          path: absoluteOf(entry.rel),
+          rel: entry.rel,
+          bytes: entry.bytes,
+          model: entry.model,
+          resolution: entry.resolution ?? '720p',
+          seconds: entry.duration ?? 5,
+          ms: Math.round(job.elapsedMs ?? 0),
+        }
+      },
+    }
+  }
+
+  function registerTools() {
+    disposeTools()
+    if (toolState.service === undefined) return
+    if (!settings.autoTool) {
+      logger.info?.('[hfsy-studio] 自动调用已关闭，不注册生图/生视频工具')
+      return
+    }
+    for (const [kind, build] of [['image', imageToolSpec], ['video', videoToolSpec]]) {
+      let done = false
+      for (const name of TOOL_NAME_CANDIDATES[kind]) {
+        const spec = build(name)
+        try {
+          toolState.disposers.push(toolState.service.register(spec))
+          toolState.names.push(name)
+          done = true
+          break
+        } catch (error) {
+          const message = String(error?.message ?? error)
+          if (/already registered/iu.test(message)) continue
+          toolState.error = message
+          logger.warn?.(`[hfsy-studio] 注册工具 ${name} 失败：${message}`)
+          break
+        }
+      }
+      if (!done) logger.warn?.(`[hfsy-studio] ${kind} 工具没能注册（名字都被占用？）`)
+    }
+    if (toolState.names.length > 0) logger.info?.(`[hfsy-studio] 已注册生成工具：${toolState.names.join(', ')}`)
+  }
+
+  ctx.inject(['tools'], (toolCtx) => {
+    toolState.service = toolCtx.tools
+    void loadSettings().then(() => registerTools())
+  })
+
+  ctx.effect(() => () => disposeTools(), 'hfsy-studio: dispose generation tools')
+
   /* ---- 路由 ---- */
 
   async function handleState(res) {
     await loadHistory()
     await loadLibrary()
+    await loadSettings()
     const key = await resolveKey()
     if (pricing.at === 0) await refreshPricing(true)
     else if (now() - pricing.at > config.pricingTtlMs) void refreshPricing(false)
@@ -856,6 +1277,8 @@ export function apply(ctx, rawConfig) {
         maxConcurrent: config.maxConcurrent,
       },
       models: { image: config.imageModels, video: config.videoModels, upscale: config.upscaleModels },
+      settings,
+      tools: toolInfo(),
       pricing: pricingView(),
       favorites,
       characters,
@@ -871,6 +1294,7 @@ export function apply(ctx, rawConfig) {
   }
 
   async function handleGenerate(req, res) {
+    await loadSettings()
     const body = await readJsonBody(req)
     const kind = body.kind === 'video' ? 'video' : 'image'
     const tool = body.tool === 'upscale' ? 'upscale' : ''
@@ -908,7 +1332,9 @@ export function apply(ctx, rawConfig) {
       return
     }
     const pool = kind === 'video' ? config.videoModels : (tool === 'upscale' ? config.upscaleModels : config.imageModels)
-    const model = typeof body.model === 'string' && body.model.trim() !== '' ? body.model.trim() : pool[0]
+    const queue = kind === 'video' ? settings.videoQueue : settings.imageQueue
+    const fallbackModel = tool === 'upscale' ? pool[0] : (queue.find((item) => pool.includes(item)) ?? pool[0])
+    const model = typeof body.model === 'string' && body.model.trim() !== '' ? body.model.trim() : fallbackModel
     if (!pool.includes(model)) {
       sendJson(res, 400, { ok: false, error: `模型 ${model} 不在当前允许列表里，改 cordis.patch.yml 的 ${kind === 'video' ? 'videoModels' : (tool === 'upscale' ? 'upscaleModels' : 'imageModels')} 再加` })
       return
@@ -930,6 +1356,7 @@ export function apply(ctx, rawConfig) {
       tool,
       refs: allRefs,
       characters: characterIds,
+      queue: [model],
     })
     sendJson(res, 200, { ok: true, job: serializeJob(job) })
   }
@@ -962,6 +1389,21 @@ export function apply(ctx, rawConfig) {
     } catch {
       sendJson(res, 404, { ok: false, error: '文件不存在或已被删除' })
     }
+  }
+
+  async function handleSettings(req, res) {
+    await loadSettings()
+    const body = await readJsonBody(req)
+    const patched = normalizeSettings(body)
+    if (patched.error !== undefined) {
+      sendJson(res, 400, { ok: false, error: patched.error })
+      return
+    }
+    const autoChanged = patched.value.autoTool !== settings.autoTool
+    settings = patched.value
+    await persistSettings()
+    if (autoChanged) registerTools()
+    sendJson(res, 200, { ok: true, settings, tools: toolInfo(), models: { image: config.imageModels, video: config.videoModels } })
   }
 
   async function handleModels(res) {
@@ -1188,6 +1630,14 @@ export function apply(ctx, rawConfig) {
       }
       if (segments.length === 1 && segments[0] === 'models') {
         await handleModels(res)
+        return
+      }
+      if (segments.length === 1 && segments[0] === 'settings') {
+        if (method === 'POST') await handleSettings(req, res)
+        else {
+          await loadSettings()
+          sendJson(res, 200, { ok: true, settings, tools: toolInfo(), models: { image: config.imageModels, video: config.videoModels } })
+        }
         return
       }
       if (segments.length === 2 && segments[0] === 'favorites' && method === 'POST') {

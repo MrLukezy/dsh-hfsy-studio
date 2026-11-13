@@ -14,6 +14,39 @@
 | --- | --- | --- |
 | ![收藏](assets/preview-favorites.png) | ![角色](assets/preview-characters.png) | ![工具](assets/preview-tools.png) |
 
+设置页：调用开关、模型队列、分辨率预设。
+
+![设置](assets/preview-settings.png)
+![分辨率预设](assets/preview-settings-presets.png)
+
+## 给模型用的工具
+
+开启「自动注册为生图 / 生视频工具」后，宿主里的模型会看到两个工具：
+
+| 工具 | 参数 | 说明 |
+| --- | --- | --- |
+| `generate_image` | `prompt`（必填）、`resolution`、`model`、`count`、`format`、`references` | `resolution` 可以填设置里的预设名/id，也可以直接写 `1024x1024`；`references` 是相对输出目录的图片路径，带参考就走 `/images/edits` |
+| `generate_video` | `prompt`（必填）、`model`、`resolution`(480p/720p/1080p)、`duration` | 走 `/video/create` + `/video/query`，1~3 分钟出片 |
+
+两者都会：落盘到输出目录 → 记进历史（`source: 'tool'`）→ 在画廊「调用」页签里出现，返回值里带绝对路径、尺寸、体积和耗时。
+
+**队列语义**：请求里没指定 `model` 时，按设置页的队列从上到下试，前一个失败了（且还没落盘）就换下一个；指定了 `model` 就只用它。
+
+**分辨率预设**：`{ id, label, size, model }`，`model` 留空表示跟随队列第一个；预设里写死的模型会覆盖队列（比如 4K 预设固定走 `gpt-image-2pro-4k`）。
+
+设置存在 `<outputDir>/settings.json`，也可以用接口改：
+
+```bash
+GET  /hfsy-studio/api/settings                     # 读
+POST /hfsy-studio/api/settings                     # 改（可只传要改的字段）
+     {"autoTool": true, "recordToolCalls": true,
+      "imageQueue": ["gpt-image-2", "gpt-image-2pro"],
+      "videoQueue": ["sd-2-fast-480"],
+      "resolutions": [{"id":"square","label":"1:1 · 1024","size":"1024x1024","model":""}]}
+```
+
+队列里的模型必须出现在 `cordis.patch.yml` 的 `imageModels` / `videoModels` 里，否则接口直接 400。
+
 ## 界面结构
 
 ```
@@ -30,6 +63,9 @@
 
 | 能力 | 说明 |
 | --- | --- |
+| 自动调用 | 插件会把 `generate_image` / `generate_video` 注册给模型：DSH 里要出图出片时直接走这里的配置，不用模型自己拼请求 |
+| 设置页 | 开关（是否自动注册工具 / 是否把调用记进历史）、模型队列顺序（失败自动换下一个）、分辨率预设（名字 → 尺寸 → 模型）都在这里改 |
+| 调用记录 | 模型调用生成的文件带 `source: tool` 标记，画廊单独有「调用」页签，和手动的作品分开看 |
 | 三栏工作台 | 左侧竖向导航 + 页头操作区 + 内容卡片；创作页是「参数卡 | 任务/结果」双栏，卡片 20px 圆角、留白 20px，不再挤成一列 |
 | 模式页签 | 创作页顶部三档：文生图 / 参考图 / 视频，切换即换整套参数（视频换成时长 + 清晰度） |
 | 分类画廊 | 画廊页顶部四档筛选：全部 / 图片 / 视频 / 4K，独立成页展示，不再塞在右栏 |
@@ -118,6 +154,7 @@ node test/client.mjs              # 用假 React 跑工厂 + 渲染面板，验�
 - 参数直连验证：`/video/create` 接受 `{model, prompt, resolution, duration}`，`/video/query?id=` 返回 `data.detail.url` 与 `progress`。
 - 价格核对：中转 `/api/pricing` 里 `gpt-image-2 = $0.02`，实测一次出图计费正好 `2`（美分），单位一致。
 - `client.mjs`：假 React 渲染出的组件树 100+ 节点、`hs-root` 外壳、样式只注入一次。
+- `tool.mjs`：假 ctx 里挂上 tools 服务，断言注册名、JSON Schema、开关能真正注销；`--live` 会真的调一次 `generate_image`，核对落盘尺寸与 `source: tool` 历史标记。
 - `smoke.mjs --live-edit`：真跑通「收藏 → 存角色 → 带参考图生图（39s）→ 4K 增强（3840×2160 / 1.5 MB）」，`favorites.json` / `characters.json` 均已落盘。
 - 中转侧直连验证：`/images/edits` 支持 `image[]` 多参考图；`gpt-image-2pro-4k` + `size=3840x2160` 返回真 4K。
 - 真实 dsh 实例里打开页面：侧栏入口、面板渲染、UI 内出图、灯箱、失败卡片均正常。
