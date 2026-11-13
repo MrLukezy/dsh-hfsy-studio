@@ -1,6 +1,6 @@
 {
   "name": "dsh-hfsy-studio",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "HFSY 生图/生视频工作台：在 DeepSeek Harness 里用 hfsy 中转的 gpt-image / Seedance 等模型出图出片，带参数面板、画廊、历史与本地落盘。",

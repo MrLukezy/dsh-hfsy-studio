@@ -1,14 +1,38 @@
 # dsh-hfsy-studio
 
 把 hfsy 中转的**生图 / 生视频**调用包成 DeepSeek Harness 里的一个可视化工作台：
-侧栏点「生图工作台」→ 左边填参数、右边看结果。出图直接落到本地目录，历史可回看、可下载、可复制路径。
+侧栏点「生图工作台」→ 自带一条竖向导航（创作 / 画廊 / 收藏 / 角色 / 工具）+ 分区页签。
+出图直接落到本地目录，历史可回看、可下载、可复制路径。
 
 ![工作台预览](assets/preview.png)
+
+| 参考图 / 角色 | 画廊分类 |
+| --- | --- |
+| ![参考图](assets/preview-refs.png) | ![画廊](assets/preview-gallery.png) |
+
+| 收藏夹 | 角色卡 | 工具库 |
+| --- | --- | --- |
+| ![收藏](assets/preview-favorites.png) | ![角色](assets/preview-characters.png) | ![工具](assets/preview-tools.png) |
+
+## 界面结构
+
+```
+┌ 侧栏导航 ─┬ 页头（视图标题 · 刷新 · 密钥 · 输出目录）
+│ 创作      │
+│ 画廊      │   创作页：[参数卡] [最新结果 + 概览]
+│ 收藏      │   其它页：单卡 + 页签筛选
+│ 角色      │
+│ 工具      │
+└───────────┴ 底部：成品数 / 收藏 / 角色 / 密钥状态
+```
 
 ## 它能做什么
 
 | 能力 | 说明 |
 | --- | --- |
+| 三栏工作台 | 左侧竖向导航 + 页头操作区 + 内容卡片；创作页是「参数卡 | 任务/结果」双栏，卡片 20px 圆角、留白 20px，不再挤成一列 |
+| 模式页签 | 创作页顶部三档：文生图 / 参考图 / 视频，切换即换整套参数（视频换成时长 + 清晰度） |
+| 分类画廊 | 画廊页顶部四档筛选：全部 / 图片 / 视频 / 4K，独立成页展示，不再塞在右栏 |
 | 参数面板 | 模型（下拉里直接带单价）、提示词（Ctrl+Enter 生成）、尺寸预设 / 自定义 WxH、质量、数量、格式；视频走时长 + 清晰度 |
 | 结果画廊 | 本次任务进度（阶段 + 计时 + 取消）、成品瀑布流、点开灯箱、下载、复制落盘路径、删除记录 |
 | 失败可见 | 失败/取消的任务停在「失败 / 已取消」区，原样显示中转返回的错误，可手动关闭 |
@@ -93,8 +117,8 @@ node test/client.mjs              # 用假 React 跑工厂 + 渲染面板，验�
 - `smoke.mjs --live-video`：`sd-2-fast-480` 4s 出片成功，mp4 落盘、`/file` 回读 `video/mp4`。
 - 参数直连验证：`/video/create` 接受 `{model, prompt, resolution, duration}`，`/video/query?id=` 返回 `data.detail.url` 与 `progress`。
 - 价格核对：中转 `/api/pricing` 里 `gpt-image-2 = $0.02`，实测一次出图计费正好 `2`（美分），单位一致。
+- `client.mjs`：假 React 渲染出的组件树 100+ 节点、`hs-root` 外壳、样式只注入一次。
 - `smoke.mjs --live-edit`：真跑通「收藏 → 存角色 → 带参考图生图（39s）→ 4K 增强（3840×2160 / 1.5 MB）」，`favorites.json` / `characters.json` 均已落盘。
-- `client.mjs`：ModuleLoader id、`sidebar.panellist` + `main` 两处注册、面板渲染 67 节点、样式只注入一次。
 - 中转侧直连验证：`/images/edits` 支持 `image[]` 多参考图；`gpt-image-2pro-4k` + `size=3840x2160` 返回真 4K。
 - 真实 dsh 实例里打开页面：侧栏入口、面板渲染、UI 内出图、灯箱、失败卡片均正常。
 
